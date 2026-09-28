@@ -1,0 +1,1896 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentación DDMRP</title>
+<style>
+  /* =====================================================================
+     TOKENS DE COLOR (claro / oscuro)
+     ===================================================================== */
+  :root {
+    --bg: #f7f7f5;
+    --surface: #ffffff;
+    --surface-2: #f1f1ee;
+    --text: #1d1d1b;
+    --text-muted: #5f5f5a;
+    --border: #deded8;
+    --accent: #1f5fae;
+    --accent-soft: #e6eef8;
+    --code-bg: #f3f3f0;
+    --red: #b3261e;      --red-soft: #fbe9e7;
+    --yellow: #8a6100;   --yellow-soft: #fff4d6;
+    --green: #2e7d32;    --green-soft: #e7f4e8;
+    --warn: #9a5b00;     --warn-soft: #fff1dc;
+    --radius: 8px;
+    --mono: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161615; --surface: #1f1f1d; --surface-2: #272725;
+      --text: #ececea; --text-muted: #a5a59f; --border: #3a3a37;
+      --accent: #7fb0ec; --accent-soft: #1d2a3a; --code-bg: #2a2a27;
+      --red: #f2998f; --red-soft: #3a1f1c;
+      --yellow: #e8c066; --yellow-soft: #352b12;
+      --green: #8fce92; --green-soft: #1c2f1d;
+      --warn: #f0b765; --warn-soft: #36280f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161615; --surface: #1f1f1d; --surface-2: #272725;
+    --text: #ececea; --text-muted: #a5a59f; --border: #3a3a37;
+    --accent: #7fb0ec; --accent-soft: #1d2a3a; --code-bg: #2a2a27;
+    --red: #f2998f; --red-soft: #3a1f1c;
+    --yellow: #e8c066; --yellow-soft: #352b12;
+    --green: #8fce92; --green-soft: #1c2f1d;
+    --warn: #f0b765; --warn-soft: #36280f;
+  }
+
+  /* =====================================================================
+     BASE
+     ===================================================================== */
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.6;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--mono); font-size: .88em;
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+  }
+  pre {
+    font-family: var(--mono); font-size: 13px; line-height: 1.5;
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; margin: 12px 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  h1, h2, h3, h4 { line-height: 1.3; }
+  h2 {
+    font-size: 1.45rem; margin: 0 0 6px; padding-top: 8px;
+  }
+  h3 { font-size: 1.1rem; margin: 28px 0 8px; }
+  h4 { font-size: .95rem; margin: 18px 0 6px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+  p { margin: 8px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+
+  /* =====================================================================
+     LAYOUT: barra lateral + contenido
+     ===================================================================== */
+  .layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 100vh; }
+  nav.sidebar {
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 20px 14px;
+  }
+  .brand { font-weight: 700; font-size: 1.05rem; margin: 0 6px 2px; }
+  .brand-sub { font-size: 12px; color: var(--text-muted); margin: 0 6px 16px; }
+  nav.sidebar ol { list-style: none; padding: 0; margin: 0; }
+  nav.sidebar li { margin: 1px 0; }
+  nav.sidebar a {
+    display: block; padding: 6px 10px; border-radius: 6px;
+    color: var(--text); font-size: 13.5px;
+  }
+  nav.sidebar a:hover { background: var(--surface-2); text-decoration: none; }
+  nav.sidebar a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  nav.sidebar .num { display: inline-block; width: 22px; color: var(--text-muted); }
+  .theme-btn {
+    margin: 18px 6px 0; width: calc(100% - 12px);
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+
+  main { padding: 32px 40px 80px; max-width: 1180px; }
+  header.hero { margin-bottom: 28px; }
+  header.hero h1 { font-size: 1.9rem; margin: 0 0 6px; }
+  header.hero p { color: var(--text-muted); margin: 4px 0; }
+
+  section.doc {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px 28px; margin-bottom: 22px;
+    scroll-margin-top: 16px;
+  }
+  .section-lead { color: var(--text-muted); margin-top: 0; }
+  .file-tag {
+    display: inline-block; font-family: var(--mono); font-size: 12px;
+    background: var(--accent-soft); color: var(--accent);
+    padding: 2px 8px; border-radius: 999px; margin: 0 6px 6px 0;
+  }
+
+  /* =====================================================================
+     TABLAS
+     ===================================================================== */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td:first-child code { white-space: nowrap; }
+
+  /* =====================================================================
+     COMPONENTES
+     ===================================================================== */
+  .formula {
+    font-family: var(--mono); font-size: 13.5px;
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+    padding: 10px 14px; border-radius: 0 var(--radius) var(--radius) 0; margin: 10px 0;
+    white-space: pre-wrap;
+  }
+  .callout {
+    border-radius: var(--radius); padding: 12px 16px; margin: 12px 0;
+    border: 1px solid var(--border); background: var(--surface-2);
+  }
+  .callout.warn { background: var(--warn-soft); border-color: transparent; }
+  .callout.warn strong:first-child { color: var(--warn); }
+  .callout.info { background: var(--accent-soft); border-color: transparent; }
+
+  /* Flujo de ejecución */
+  .flow { display: grid; gap: 8px; margin: 14px 0; }
+  .flow-step {
+    display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: start;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 14px;
+  }
+  .flow-step .n {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--surface);
+    display: grid; place-items: center; font-weight: 700; font-size: 13px;
+  }
+  .flow-step .t { font-weight: 600; }
+  .flow-step .d { font-size: 13px; color: var(--text-muted); }
+  .flow-step.final { border-color: var(--accent); }
+  .flow-stop { font-size: 13px; color: var(--warn); padding: 2px 4px 2px 46px; }
+
+  /* Buffer visual */
+  .buffer { display: grid; grid-template-columns: 1fr; max-width: 520px; margin: 14px 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+  .zone { padding: 10px 14px; display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; }
+  .zone .lbl { font-weight: 600; }
+  .zone .f { font-family: var(--mono); font-size: 12.5px; }
+  .zone.g { background: var(--green-soft); color: var(--green); }
+  .zone.y { background: var(--yellow-soft); color: var(--yellow); }
+  .zone.r { background: var(--red-soft); color: var(--red); }
+  .zone.line { background: var(--surface-2); color: var(--text); font-size: 12.5px; padding: 5px 14px; }
+
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .kpi { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+  .kpi .k { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .v { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  ol.obs > li { margin: 10px 0; }
+  .obs-title { font-weight: 600; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+    vertical-align: middle; margin-left: 6px;
+  }
+  .badge.neg { background: var(--warn-soft); color: var(--warn); }
+  .badge.tec { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+
+  footer { color: var(--text-muted); font-size: 12.5px; text-align: center; margin-top: 30px; }
+
+  /* =====================================================================
+     BLOQUES DE CÓDIGO DESPLEGABLES ("Ver código")
+     ===================================================================== */
+  details.code {
+    margin: 10px 0 14px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface-2); overflow: hidden;
+  }
+  details.code > summary {
+    cursor: pointer; padding: 8px 12px; font-size: 13px; font-weight: 600;
+    list-style: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  details.code > summary::-webkit-details-marker { display: none; }
+  details.code > summary::before {
+    content: "▸"; color: var(--accent); transition: transform .15s; display: inline-block;
+  }
+  details.code[open] > summary::before { transform: rotate(90deg); }
+  details.code > summary .src {
+    font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--text-muted);
+  }
+  details.code pre {
+    margin: 0; border: none; border-top: 1px solid var(--border); border-radius: 0;
+    background: var(--code-bg);
+  }
+  details.code .ln {
+    display: inline-block; width: 3.2em; margin-right: 12px; text-align: right;
+    color: var(--text-muted); opacity: .6; user-select: none;
+  }
+  .code-tools { display: grid; gap: 6px; margin: 10px 6px 0; }
+  .code-tools button {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+
+  /* =====================================================================
+     RESPONSIVE
+     ===================================================================== */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 20px 16px 60px; }
+    section.doc { padding: 18px 16px; }
+  }
+  @media print {
+    nav.sidebar { display: none; }
+    .layout { grid-template-columns: 1fr; }
+    section.doc { break-inside: avoid-page; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- =====================================================================
+     BARRA LATERAL (índice)
+     ===================================================================== -->
+<nav class="sidebar" aria-label="Índice">
+  <div class="brand">DDMRP · Grupo Vii</div>
+  <div class="brand-sub">Documentación técnica de cálculos</div>
+  <ol>
+    <li><a href="#s1"><span class="num">1</span>Visión general y flujo</a></li>
+    <li><a href="#s2"><span class="num">2</span>Parámetros</a></li>
+    <li><a href="#s3"><span class="num">3</span>config.py</a></li>
+    <li><a href="#s4"><span class="num">4</span>ddmrp_bodega.py</a></li>
+    <li><a href="#s5"><span class="num">5</span>ddmrp_inventario.py</a></li>
+    <li><a href="#s6"><span class="num">6</span>ddmrp_ventas_picos.py</a></li>
+    <li><a href="#s7"><span class="num">7</span>ddmrp_proveedores.py</a></li>
+    <li><a href="#s8"><span class="num">8</span>Vistas PostgreSQL</a></li>
+    <li><a href="#s9"><span class="num">9</span>master.py · core.ddmrp</a></li>
+    <li><a href="#s10"><span class="num">10</span>Ejemplo MA_2000050</a></li>
+    <li><a href="#s11"><span class="num">11</span>Observaciones</a></li>
+  </ol>
+  <button class="theme-btn" id="themeBtn" type="button">Cambiar tema claro / oscuro</button>
+  <div class="code-tools">
+    <button type="button" id="openAll">Desplegar todo el código</button>
+    <button type="button" id="closeAll">Contraer todo el código</button>
+  </div>
+</nav>
+
+<main>
+<header class="hero">
+  <h1>Documentación técnica · Proceso DDMRP</h1>
+  <p>Carpeta <code>Documents/Scripts/DDMRP</code>. Generada a partir del código de los scripts, de las vistas de PostgreSQL (<code>pg_get_viewdef</code>) y de <code>core.ddmrp_parametros</code>, con los valores vigentes al 27/09/2026.</p>
+  <p>Los ejemplos numéricos son datos reales de <code>core.ddmrp</code> para el ítem <code>MA_2000050</code>.</p>
+</header>
+
+<!-- =====================================================================
+     1. VISIÓN GENERAL
+     ===================================================================== -->
+<section class="doc" id="s1">
+  <h2>1. Visión general y flujo</h2>
+  <p class="section-lead">Para cada ítem de cada empresa del grupo, el proceso calcula el <strong>buffer DDMRP</strong> (zonas roja, amarilla y verde), la <strong>posición de flujo neto (NFP)</strong> y el <strong>pedido sugerido</strong>.</p>
+
+  <h3>Orígenes de datos</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Origen</th><th>Motor</th><th>Qué se lee</th></tr>
+    <tr><td>SAP Business One</td><td>SAP HANA</td><td>Stock actual por bodega (<code>OITM</code>, <code>OITW</code>)</td></tr>
+    <tr><td>DWH</td><td>SQL Server</td><td>Historial diario de existencias (<code>dbo.hec_existencias</code>, <code>dbo.dim_bodegas</code>)</td></tr>
+    <tr><td>dwh</td><td>PostgreSQL</td><td>Ventas, importaciones, pedidos, tránsitos, facturas reserva, maestro de ítems y parámetros</td></tr>
+  </table></div>
+
+  <h3>Orden de ejecución (<code>master.py</code>)</h3>
+  <div class="flow">
+    <div class="flow-step"><div class="n">1</div><div><div class="t">ddmrp_bodega.ejecutar() → core.ddmrp_bodegas</div><div class="d">SAP HANA · stock físico actual por ítem</div></div></div>
+    <div class="flow-step"><div class="n">2</div><div><div class="t">ddmrp_inventario.ejecutar() → core.ddmrp_inventario</div><div class="d">SQL Server · días con stock en 1 año y en 90 días</div></div></div>
+    <div class="flow-step"><div class="n">3</div><div><div class="t">ddmrp_ventas_picos.ejecutar() → core.ddmrp_ventas_picos</div><div class="d">PostgreSQL · venta mensual, picos, ADU, CV y VF</div></div></div>
+    <div class="flow-step"><div class="n">4</div><div><div class="t">ddmrp_proveedores.ejecutar() → core.ddmrp_proveedores</div><div class="d">PostgreSQL · lead times por PI, picos y DLT</div></div></div>
+    <div class="flow-stop">Si <strong>cualquiera</strong> de los 4 falla: se registra el error, <strong>no</strong> se actualiza <code>core.ddmrp</code> y el proceso termina con código 1.</div>
+    <div class="flow-step final"><div class="n">5</div><div><div class="t">cargar_ddmrp() → core.ddmrp (tabla final)</div><div class="d">INSERT base (datos + DLT + VF) → ADU → LTF → Zona roja base → Zona roja seguridad → TOR → Zona amarilla → TOY → Zona verde → TOG → NFP → Pedido sugerido</div></div></div>
+  </div>
+
+  <details class="code">
+    <summary>Ver código: lista de procesos y orden de ejecución <span class="src">master.py · líneas 16–21</span></summary>
+<pre data-start="16"><code>PROCESOS = [
+    ("ddmrp_bodega", ddmrp_bodega.ejecutar),
+    ("ddmrp_inventario", ddmrp_inventario.ejecutar),
+    ("ddmrp_ventas_picos", ddmrp_ventas_picos.ejecutar),
+    ("ddmrp_proveedores", ddmrp_proveedores.ejecutar),
+]</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: main() — corre los 4 procesos y, si ninguno falla, arma core.ddmrp <span class="src">master.py · líneas 290–316</span></summary>
+<pre data-start="290"><code>def main():
+    fallidos = []
+    for nombre, ejecutar in PROCESOS:
+        log.info("=== Inicio %s ===", nombre)
+        inicio = time.time()
+        try:
+            ejecutar()
+            log.info("=== Fin %s (%.1f s) ===", nombre, time.time() - inicio)
+        except Exception:
+            log.exception("=== Error en %s ===", nombre)
+            fallidos.append(nombre)
+
+    if fallidos:
+        log.error("Terminó con errores en: %s", ", ".join(fallidos))
+        log.error("No se actualiza %s.%s porque fallaron procesos previos", PG_SCHEMA, PG_TABLA)
+        sys.exit(1)
+
+    log.info("=== Inicio %s ===", PG_TABLA)
+    inicio = time.time()
+    try:
+        cargar_ddmrp()
+        log.info("=== Fin %s (%.1f s) ===", PG_TABLA, time.time() - inicio)
+    except Exception:
+        log.exception("=== Error en %s ===", PG_TABLA)
+        sys.exit(1)
+
+    log.info("Todos los procesos terminaron correctamente")</code></pre>
+  </details>
+
+  <h3>Patrón de carga común</h3>
+  <ol>
+    <li><code>CREATE TABLE IF NOT EXISTS</code>: crea la tabla solo si no existe.</li>
+    <li><code>ALTER TABLE … ADD COLUMN IF NOT EXISTS</code> (en los scripts que lo tienen): agrega columnas nuevas sin borrar la tabla.</li>
+    <li><code>TRUNCATE</code>: borra todos los registros.</li>
+    <li><code>INSERT</code> masivo con <code>execute_values</code>, en páginas de 5.000 filas.</li>
+  </ol>
+  <div class="callout info">Todo ocurre dentro de <strong>una sola transacción</strong> (<code>with conn:</code>). Si algo falla se hace rollback y la tabla conserva los datos de la corrida anterior; nunca queda vacía. Cada script puede ejecutarse solo (<code>python ddmrp_xxx.py</code>) o desde el master.</div>
+  <details class="code">
+    <summary>Ver código: ejemplo del patrón de carga (igual en todos los scripts) <span class="src">tablas_resumen/ddmrp_bodega.py · líneas 86–97</span></summary>
+<pre data-start="86"><code>def cargar(filas):
+    conn = psycopg2.connect(**POSTGRES)
+    try:
+        with conn:                      # una sola transacción: si falla, no deja la tabla vacía
+            with conn.cursor() as cur:
+                cur.execute(CREATE)
+                cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
+                if filas:
+                    execute_values(cur, INSERT, filas, page_size=5000)
+        log.info("Cargadas %s filas en %s.%s", len(filas), PG_SCHEMA, PG_TABLA)
+    finally:
+        conn.close()</code></pre>
+  </details>
+</section>
+
+<!-- =====================================================================
+     2. PARÁMETROS
+     ===================================================================== -->
+<section class="doc" id="s2">
+  <h2>2. Parámetros (<code>core.ddmrp_parametros</code>)</h2>
+  <p class="section-lead">Los scripts leen <code>ddmrp_valor_num</code> solo de los registros con <code>ddmrp_estado = 1</code>. Si falta un parámetro activo, el script lanza <code>ValueError</code> y se detiene. Excepciones: la vista <code>vw_ddmrp_ventas</code> no filtra por estado y usa 365/90 por defecto; <code>master.py</code> tampoco filtra por estado al leer los ids 3, 4, 5 y 6.</p>
+
+  <div class="table-wrap"><table>
+    <tr><th class="num">id</th><th>Nombre</th><th class="num">Valor</th><th>Usado en</th><th>Para qué</th></tr>
+    <tr><td class="num">1</td><td>Ventas 1 anio</td><td class="num">365</td><td><code>ddmrp_inventario.py</code>, <code>vw_ddmrp_ventas</code></td><td>Días de la ventana anual (ventas y días con stock)</td></tr>
+    <tr><td class="num">2</td><td>Venta 90 dias</td><td class="num">90</td><td><code>ddmrp_inventario.py</code>, <code>vw_ddmrp_ventas</code></td><td>Días de la ventana corta</td></tr>
+    <tr><td class="num">3</td><td>Ciclo Pedido</td><td class="num">30</td><td><code>master.py</code></td><td>Días del ciclo de pedido (zona verde)</td></tr>
+    <tr><td class="num">4</td><td>LTF bajo</td><td class="num">0.2</td><td><code>master.py</code>, <code>ddmrp_proveedores.py</code></td><td>Factor de lead time</td></tr>
+    <tr><td class="num">5</td><td>LTF medio</td><td class="num">0.4</td><td><code>master.py</code>, <code>ddmrp_proveedores.py</code></td><td>Factor de lead time</td></tr>
+    <tr><td class="num">6</td><td>LTF alto</td><td class="num">0.6</td><td><code>master.py</code>, <code>ddmrp_proveedores.py</code></td><td>Factor de lead time</td></tr>
+    <tr><td class="num">7</td><td>VF bajo</td><td class="num">0.2</td><td><code>ddmrp_ventas_picos.py</code></td><td>Factor de variabilidad cuando CV ≤ 0.5</td></tr>
+    <tr><td class="num">8</td><td>VF medio</td><td class="num">0.4</td><td><code>ddmrp_ventas_picos.py</code></td><td>Factor de variabilidad cuando 0.5 &lt; CV ≤ 1, y para SKU no medibles</td></tr>
+    <tr><td class="num">9</td><td>VF alto</td><td class="num">0.6</td><td><code>ddmrp_ventas_picos.py</code></td><td>Factor de variabilidad cuando CV &gt; 1</td></tr>
+    <tr><td class="num">10</td><td>Dias Confirmacion Pedido</td><td class="num">3</td><td><code>ddmrp_proveedores.py</code></td><td>Días fijos que se suman al DLT</td></tr>
+    <tr><td class="num">11</td><td>Dias Desaduanizacion y Recepcion Bodega</td><td class="num">3</td><td><code>ddmrp_proveedores.py</code></td><td>Días fijos que se suman al DLT</td></tr>
+    <tr><td class="num">12</td><td>Dias Cordinacion Booking</td><td class="num">3</td><td><code>ddmrp_proveedores.py</code></td><td>Días fijos que se suman al DLT</td></tr>
+    <tr><td class="num">13</td><td>Umbral</td><td class="num">3.5</td><td><code>ddmrp_ventas_picos.py</code>, <code>ddmrp_proveedores.py</code></td><td>Umbral de |Z modificado| para marcar un pico</td></tr>
+    <tr><td class="num">14</td><td>Z modificado</td><td class="num">0.6745</td><td><code>ddmrp_ventas_picos.py</code>, <code>ddmrp_proveedores.py</code></td><td>Constante del Z modificado (Iglewicz–Hoaglin)</td></tr>
+    <tr><td class="num">15</td><td>Dias toma datos</td><td class="num">365</td><td><code>ddmrp_proveedores.py</code></td><td>Filtro de antigüedad de las facturas reserva</td></tr>
+  </table></div>
+
+  <h3>Constantes escritas en el código (no están en la tabla de parámetros)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Script</th><th>Constante</th><th>Valor</th><th>Uso</th></tr>
+    <tr><td><code>ddmrp_ventas_picos.py</code></td><td><code>FECHA_DESDE</code></td><td>2025-05-01</td><td>Inicio fijo de la extracción de ventas</td></tr>
+    <tr><td><code>ddmrp_ventas_picos.py</code></td><td><code>LIMITE_VF_BAJO</code> / <code>LIMITE_VF_MEDIO</code></td><td>0.5 / 1</td><td>Cortes de CV para elegir el factor VF</td></tr>
+    <tr><td><code>ddmrp_ventas_picos.py</code></td><td><code>MESES_VENTANA</code></td><td>12</td><td>Meses completos que se usan para el ADU y el CV</td></tr>
+    <tr><td><code>ddmrp_ventas_picos.py</code></td><td><code>MIN_MESES_LIMPIOS</code></td><td>3</td><td>Mínimo de meses para poder medir el CV</td></tr>
+    <tr><td><code>ddmrp_proveedores.py</code></td><td><code>LIMITE_LTF_BAJO</code> / <code>LIMITE_LTF_MEDIO</code></td><td>60 / 100 días</td><td>Tramos de DLT (columna <code>ltf</code> de proveedores)</td></tr>
+    <tr><td><code>master.py</code></td><td>tramos en <code>SQL_LTF</code></td><td>60 / 100 días</td><td>Tramos de DLT (columna <code>LTF</code> de <code>core.ddmrp</code>)</td></tr>
+    <tr><td><code>vw_ddmrp_ventas</code></td><td>umbral fijo</td><td>0.4 (40 %)</td><td>Cálculo de <code>supera_umbral</code></td></tr>
+    <tr><td><code>ddmrp_ventas_picos.py</code>, <code>ddmrp_proveedores.py</code></td><td><code>DECIMALES_Z</code></td><td>2</td><td>Redondeo del Z modificado</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: lectura de parámetros (mismo patrón en todos los scripts) <span class="src">tablas_resumen/ddmrp_ventas_picos.py · líneas 50–69</span></summary>
+<pre data-start="50"><code>def leer_parametros():
+    ids = (ID_UMBRAL_PICO, ID_CONSTANTE_Z, ID_VF_BAJO, ID_VF_MEDIO, ID_VF_ALTO)
+    with psycopg2.connect(**POSTGRES) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ddmrp_id, ddmrp_valor_num
+            FROM core.ddmrp_parametros
+            WHERE ddmrp_id IN %s AND ddmrp_estado = 1
+        """, (ids,))
+        valores = dict(cur.fetchall())
+
+    faltan = [i for i in ids if valores.get(i) is None]
+    if faltan:
+        raise ValueError(f"Faltan parámetros activos en core.ddmrp_parametros: ddmrp_id {faltan}")
+
+    log.info("Parámetros: umbral = %s, constante Z = %s, VF bajo = %s, VF medio = %s, VF alto = %s",
+             valores[ID_UMBRAL_PICO], valores[ID_CONSTANTE_Z],
+             valores[ID_VF_BAJO], valores[ID_VF_MEDIO], valores[ID_VF_ALTO])
+    factores_vf = (valores[ID_VF_BAJO], valores[ID_VF_MEDIO], valores[ID_VF_ALTO])
+    return valores[ID_UMBRAL_PICO], valores[ID_CONSTANTE_Z], factores_vf</code></pre>
+  </details>
+</section>
+
+<!-- =====================================================================
+     3. CONFIG
+     ===================================================================== -->
+<section class="doc" id="s3">
+  <h2>3. <code>conection/config.py</code></h2>
+  <span class="file-tag">DDMRP/conection/config.py</span>
+  <p class="section-lead">Solo define las conexiones; no calcula nada. Los demás scripts lo importan agregando <code>DDMRP/conection</code> al <code>sys.path</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Objeto</th><th>Tipo</th><th>Destino</th></tr>
+    <tr><td><code>SQLSERVER</code></td><td>dict</td><td>SQL Server <code>192.168.0.15:1433</code>, base <code>DWH</code>, driver ODBC "SQL Server"</td></tr>
+    <tr><td><code>POSTGRES</code></td><td>dict</td><td>PostgreSQL <code>192.168.0.89:5432</code>, base <code>dwh</code></td></tr>
+    <tr><td><code>HANA</code></td><td>dict</td><td>SAP HANA <code>192.168.0.105:30015</code></td></tr>
+    <tr><td><code>sqlserver_conn_str()</code></td><td>función</td><td>Arma la cadena ODBC <code>DRIVER=…;SERVER=…;DATABASE=…;UID=…;PWD=…</code> para <code>pyodbc</code></td></tr>
+  </table></div>
+</section>
+
+<!-- =====================================================================
+     4. BODEGA
+     ===================================================================== -->
+<section class="doc" id="s4">
+  <h2>4. <code>ddmrp_bodega.py</code> → <code>core.ddmrp_bodegas</code></h2>
+  <span class="file-tag">SAP HANA</span><span class="file-tag">1 fila por empresa + ítem</span>
+  <p class="section-lead">Stock físico actual (hoy) de cada ítem, sumando las bodegas de venta de cada empresa.</p>
+
+  <h3>4.1 Configuración de empresas</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Empresa</th><th>Abreviatura</th><th>Esquema SAP HANA</th><th>Bodegas (<code>OITW.WhsCode</code>)</th></tr>
+    <tr><td>STOX</td><td>ST</td><td><code>SBO_STOX_PROD</code></td><td>02, 03, 07, 08, 09, 10</td></tr>
+    <tr><td>AUTOLLANTA</td><td>AU</td><td><code>SBO_AUTOLLANTA_PROD</code></td><td>01, 02, 03, 07, 08, 09, 10</td></tr>
+    <tr><td>MAXXIMUNDO</td><td>MA</td><td><code>SBO_MAXXIMUNDO_PROD</code></td><td>02, 03, 07, 08, 09, 10</td></tr>
+    <tr><td>IKONIX</td><td>IK</td><td><code>SBO_IKONIX_PROD</code></td><td>01, 02, 03, 07, 08, 09, 10</td></tr>
+    <tr><td>AUTOMAX</td><td>ATX</td><td><code>SBO_AUTOMAX_PROD1</code> (la única con sufijo <code>PROD1</code>)</td><td>01, 02, 03, 04, 05</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: configuración de empresas y bodegas <span class="src">tablas_resumen/ddmrp_bodega.py · líneas 19–28</span></summary>
+<pre data-start="19"><code># Empresas: esquema SAP, prefijo del código (ST_2000191) y bodegas (OITW.WhsCode)
+EMPRESAS_CONFIG = [
+    {"codigo": "STOX",       "abreviatura": "ST",  "bodegas": ["02", "03", "07", "08", "09", "10"]},
+    {"codigo": "AUTOLLANTA", "abreviatura": "AU",  "bodegas": ["01", "02", "03", "07", "08", "09", "10"]},
+    {"codigo": "MAXXIMUNDO", "abreviatura": "MA",  "bodegas": ["02", "03", "07", "08", "09", "10"]},
+    {"codigo": "IKONIX",     "abreviatura": "IK",  "bodegas": ["01", "02", "03", "07", "08", "09", "10"]},
+    {"codigo": "AUTOMAX",    "abreviatura": "ATX", "bodegas": ["01", "02", "03", "04", "05"]},
+]
+
+SEPARADOR = "_"</code></pre>
+  </details>
+
+  <h3>4.2 Consulta (una por empresa)</h3>
+<pre><code>SELECT T0."ItemCode" AS codigo, SUM(T1."OnHand") AS sum
+FROM "&lt;esquema&gt;"."OITM" T0
+INNER JOIN "&lt;esquema&gt;"."OITW" T1 ON T0."ItemCode" = T1."ItemCode"
+WHERE T1."WhsCode" IN (&lt;bodegas de la empresa&gt;)
+GROUP BY T0."ItemCode"</code></pre>
+
+  <h3>4.3 Campos de <code>core.ddmrp_bodegas</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Tipo</th><th>Cálculo</th></tr>
+    <tr><td><code>codigo</code></td><td>varchar</td><td>Abreviatura + <code>"_"</code> + <code>OITM.ItemCode</code>. Por ejemplo, el ItemCode <code>2000050</code> de MAXXIMUNDO queda como <code>MA_2000050</code>, igual que <code>dim_item.dit_codigo</code>.</td></tr>
+    <tr><td><code>empresa</code></td><td>varchar</td><td>Código de la empresa (<code>STOX</code>, <code>AUTOLLANTA</code>, …).</td></tr>
+    <tr><td><code>sum</code></td><td>bigint</td><td><code>SUM(OITW.OnHand)</code> del ítem en las bodegas listadas. <code>OnHand</code> es stock <strong>físico</strong>: no descuenta lo comprometido (<code>IsCommited</code>) ni suma lo pedido (<code>OnOrder</code>). Al ser <code>bigint</code>, los decimales se redondean.</td></tr>
+  </table></div>
+  <ul>
+    <li>Aparecen todos los ítems con registro en <code>OITW</code> para esas bodegas, <strong>incluso con stock 0</strong>.</li>
+    <li>Es una foto del momento de la ejecución, sin histórico.</li>
+    <li>Si una empresa no devuelve filas, se registra un <em>warning</em> y el proceso continúa.</li>
+  </ul>
+  <details class="code">
+    <summary>Ver código: extracción por empresa y armado del código con prefijo <span class="src">tablas_resumen/ddmrp_bodega.py · líneas 50–69</span></summary>
+<pre data-start="50"><code>def extraer():
+    filas = []
+    conn = dbapi.connect(**HANA)
+    try:
+        cur = conn.cursor()
+        for emp in EMPRESAS_CONFIG:
+            schema = (f"SBO_{emp['codigo']}_PROD1" if emp["codigo"] == "AUTOMAX"
+                      else f"SBO_{emp['codigo']}_PROD")
+            marcas = ", ".join("?" for _ in emp["bodegas"])
+            cur.execute(SQL_TEMPLATE.format(schema=schema, bodegas_in=marcas), emp["bodegas"])
+            datos = cur.fetchall()
+            if not datos:
+                log.warning("No se encontraron datos para el esquema %s", schema)
+            # columnas en el orden de la tabla: codigo, empresa, sum
+            filas += [(f"{emp['abreviatura']}{SEPARADOR}{codigo}", emp["codigo"], stock)
+                      for codigo, stock in datos]
+            log.info("Extraídas %s filas de %s (bodegas %s)", len(datos), schema, emp["bodegas"])
+    finally:
+        conn.close()
+    return filas</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: estructura de la tabla <span class="src">tablas_resumen/ddmrp_bodega.py · líneas 75–83</span></summary>
+<pre data-start="75"><code>CREATE = f"""
+CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
+    codigo   varchar,
+    empresa  varchar,
+    sum      bigint
+)
+"""
+
+INSERT = f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} (codigo, empresa, sum) VALUES %s"</code></pre>
+  </details>
+  <div class="callout info"><strong>Uso en master:</strong> <code>EN STOCK = ddmrp_bodegas.sum</code> (join por <code>empresa</code> + <code>codigo</code>).</div>
+</section>
+
+<!-- =====================================================================
+     5. INVENTARIO
+     ===================================================================== -->
+<section class="doc" id="s5">
+  <h2>5. <code>ddmrp_inventario.py</code> → <code>core.ddmrp_inventario</code></h2>
+  <span class="file-tag">SQL Server</span><span class="file-tag">1 fila por empresa + ítem</span>
+  <p class="section-lead">Cuenta <strong>cuántos días tuvo stock</strong> cada ítem en la ventana de 1 año y en la de 90 días. Sirve para calcular una demanda corregida por quiebres de stock: si un ítem estuvo sin stock no pudo venderse, así que la venta se divide solo entre los días en que sí hubo stock.</p>
+
+  <h3>5.1 Parámetros y fechas</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Variable</th><th>Valor</th><th>Descripción</th></tr>
+    <tr><td><code>dias_1anio</code></td><td>param 1 = 365</td><td>Días de la ventana anual</td></tr>
+    <tr><td><code>dias_90d</code></td><td>param 2 = 90</td><td>Días de la ventana corta</td></tr>
+    <tr><td><code>FECHA_CORTE</code></td><td><code>None</code></td><td>Si se pone una fecha, las ventanas se calculan hacia atrás desde ella. Con <code>None</code> se usa hoy.</td></tr>
+    <tr><td><code>HOY</code></td><td><code>FECHA_CORTE</code> o <code>date.today()</code></td><td>Fecha de referencia</td></tr>
+    <tr><td><code>HASTA</code></td><td><code>HOY + 1 día</code></td><td>Límite superior <strong>exclusivo</strong> (incluye todo el día de corte)</td></tr>
+    <tr><td><code>desde_1a</code></td><td><code>HOY − 365 días</code></td><td>Inicio <strong>inclusivo</strong> de la ventana anual</td></tr>
+    <tr><td><code>desde_90d</code></td><td><code>HOY − 90 días</code></td><td>Inicio <strong>inclusivo</strong> de la ventana de 90 días</td></tr>
+    <tr><td><code>FILTRO_EMPRESA</code>, <code>FILTRO_ITEM</code></td><td><code>None</code></td><td>Filtros opcionales para pruebas</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: bodegas, filtros, fecha de corte y parámetros <span class="src">tablas_resumen/ddmrp_inventario.py · líneas 20–43</span></summary>
+<pre data-start="20"><code># Bodegas por empresa: códigos de dim_bodegas.dib_codigobodega, se comparan tal
+# cual (sin rellenar con 0). Solo se extraen las empresas que estén aquí.
+BODEGAS_POR_EMPRESA = {
+    "MAXXIMUNDO": ["02", "03", "07", "08", "09", "10"],
+    "AUTOLLANTA": ["01", "02", "03", "07", "08", "09", "10"],
+    "STOX":       ["02", "03", "07", "08", "09", "10"],
+    "IKONIX":     ["01", "02", "03", "07", "08", "09", "10"],
+    "AUTOMAX":    ["01", "02", "03", "04", "05"],
+}
+
+# Filtros opcionales: pon None para traer todas las empresas / todos los ítems
+FILTRO_EMPRESA = None
+FILTRO_ITEM    = None
+
+# Fecha de corte opcional: pon una fecha, ej. date(2026, 6, 30), para calcular
+# las ventanas hacia atrás desde esa fecha. Con None se usa hoy.
+FECHA_CORTE = None #date(2026, 9, 23)
+
+HOY   = FECHA_CORTE or date.today()
+HASTA = HOY + timedelta(days=1)     # límite superior exclusivo (incluye todo el día de corte)
+
+# Días de cada ventana en core.ddmrp_parametros (ddmrp_valor_num, solo ddmrp_estado = 1)
+ID_DIAS_1ANIO = 1    # Ventas 1 anio -&gt; 365
+ID_DIAS_90D   = 2    # Venta 90 dias -&gt; 90</code></pre>
+  </details>
+  <p>Bodegas consideradas (<code>BODEGAS_POR_EMPRESA</code>, códigos de <code>dim_bodegas.dib_codigobodega</code>): las <strong>mismas</strong> que en <code>ddmrp_bodega.py</code> (sección 4.1).</p>
+
+  <h3>5.2 Consulta (SQL Server)</h3>
+<pre><code>SELECT hex_empresa, hex_identificadoritem,
+       COUNT(DISTINCT CAST(hex_fechasubida AS DATE))                AS dias_stock_1anio,
+       COUNT(DISTINCT CASE WHEN hex_fechasubida &gt;= :desde_90d
+                           THEN CAST(hex_fechasubida AS DATE) END)  AS dias_stock_90d
+FROM DWH.dbo.hec_existencias
+WHERE hex_fechasubida &gt;= :desde_1a
+  AND hex_fechasubida &lt;  :hasta
+  AND hex_stock &gt; 0
+  AND EXISTS (SELECT 1 FROM DWH.dbo.dim_bodegas b
+              WHERE b.dib_nombreempresa = hex_empresa
+                AND b.dib_nombrebodega  = hex_nombrealmacen
+                AND ( (b.dib_nombreempresa = 'MAXXIMUNDO' AND b.dib_codigobodega IN (...))
+                   OR (...) ))
+GROUP BY hex_empresa, hex_identificadoritem</code></pre>
+  <p><code>hec_existencias</code> es una foto diaria del stock por ítem y almacén (<code>hex_fechasubida</code> es la fecha de la foto). El <code>EXISTS</code> limita a las bodegas de venta: cruza por <strong>nombre</strong> del almacén con <code>dim_bodegas</code> y valida el <strong>código</strong> de bodega de la empresa.</p>
+  <details class="code">
+    <summary>Ver código: cálculo de fechas, filtro de bodegas y consulta de días con stock <span class="src">tablas_resumen/ddmrp_inventario.py · líneas 75–130</span></summary>
+<pre data-start="75"><code>def extraer(dias_1anio, dias_90d):
+    # Fechas dinámicas (corte - dias_1anio y corte - dias_90d)
+    desde_1a  = HOY - timedelta(days=dias_1anio)   # 365: 2026-09-22 -&gt; 2025-09-21
+    desde_90d = HOY - timedelta(days=dias_90d)     # 90:  2026-09-22 -&gt; 2026-06-24
+
+    # (b.dib_nombreempresa = ? AND b.dib_codigobodega IN (?, ...)) OR (...) por cada empresa
+    bloques, params_bodegas = [], []
+    for empresa, codigos in BODEGAS_POR_EMPRESA.items():
+        marcas = ", ".join("?" for _ in codigos)
+        bloques.append(f"(b.dib_nombreempresa = ? AND b.dib_codigobodega IN ({marcas}))")
+        params_bodegas += [empresa, *codigos]
+    filtro_bodegas = " OR ".join(bloques)
+
+    sql = f"""
+        SELECT
+            hex_empresa,
+            hex_identificadoritem,
+            COUNT(DISTINCT CAST(hex_fechasubida AS DATE)) AS dias_stock_1anio,
+            COUNT(DISTINCT CASE
+                               WHEN hex_fechasubida &gt;= ?
+                               THEN CAST(hex_fechasubida AS DATE)
+                           END) AS dias_stock_90d
+        FROM DWH.dbo.hec_existencias
+        --FROM DWH.dbo.existencias_stox
+        WHERE hex_fechasubida &gt;= ?
+          AND hex_fechasubida &lt; ?
+          AND hex_stock &gt; 0
+          AND EXISTS (
+              SELECT 1
+              FROM DWH.dbo.dim_bodegas b
+              WHERE b.dib_nombreempresa = hex_empresa
+                AND b.dib_nombrebodega  = hex_nombrealmacen
+                AND ({filtro_bodegas})
+          )
+    """
+    # Fechas como texto YYYYMMDD: el driver "SQL Server" no acepta parámetros tipo date
+    params = [desde_90d.strftime("%Y%m%d"), desde_1a.strftime("%Y%m%d"),
+              HASTA.strftime("%Y%m%d"), *params_bodegas]
+
+    if FILTRO_EMPRESA:
+        sql += " AND hex_empresa = ?"
+        params.append(FILTRO_EMPRESA)
+    if FILTRO_ITEM:
+        sql += " AND hex_identificadoritem = ?"
+        params.append(FILTRO_ITEM)
+
+    sql += " GROUP BY hex_empresa, hex_identificadoritem;"
+
+    with pyodbc.connect(sqlserver_conn_str()) as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        filas = [(r[0], r[1], float(r[2]), float(r[3])) for r in cur.fetchall()]
+
+    log.info("Extraídas %s filas de SQL Server (corte %s: 1 año desde %s, 90d desde %s)",
+             len(filas), HOY, desde_1a, desde_90d)
+    return filas</code></pre>
+  </details>
+
+  <h3>5.3 Campos de <code>core.ddmrp_inventario</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Tipo</th><th>Cálculo</th></tr>
+    <tr><td><code>ddmpr_empresa</code></td><td>varchar</td><td><code>hex_empresa</code>. El nombre tiene la errata <code>ddmpr</code>; el master la usa igual.</td></tr>
+    <tr><td><code>ddmrp_item</code></td><td>varchar</td><td><code>hex_identificadoritem</code>. En el master se cruza con <code>dim_item.dit_identificador</code>, no con <code>dit_codigo</code>.</td></tr>
+    <tr><td><code>ddmrp_stock_inv_1anio</code></td><td>double</td><td>Número de <strong>días distintos</strong> entre <code>desde_1a</code> y <code>HOY</code> (ambos incluidos) en que el ítem tuvo <code>hex_stock &gt; 0</code> en <strong>al menos una</strong> bodega de venta.</td></tr>
+    <tr><td><code>ddmrp_stock_inv_90D</code></td><td>double</td><td>Lo mismo, pero solo con días donde <code>hex_fechasubida &gt;= desde_90d</code>.</td></tr>
+  </table></div>
+  <ul>
+    <li>Basta con que <strong>una</strong> bodega tenga stock &gt; 0 ese día para que el día cuente. No se suma el stock de las bodegas.</li>
+    <li>Los ítems que no tuvieron stock ningún día de la ventana <strong>no aparecen</strong>; en el master sus días quedan <code>NULL</code> y las demandas mensuales salen 0.</li>
+    <li>Como el inicio y el fin son inclusivos, la ventana abarca hasta <strong>366</strong> fechas (y hasta <strong>91</strong> en la de 90 días). El valor real depende de los días que tengan foto en <code>hec_existencias</code>.</li>
+  </ul>
+  <details class="code">
+    <summary>Ver código: estructura de la tabla <span class="src">tablas_resumen/ddmrp_inventario.py · líneas 136–150</span></summary>
+<pre data-start="136"><code># "ddmrp_stock_inv_90D" va entre comillas porque tiene mayúscula.
+CREATE = f"""
+CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
+    ddmpr_empresa           varchar,
+    ddmrp_item              varchar,
+    ddmrp_stock_inv_1anio   double precision,
+    "ddmrp_stock_inv_90D"   double precision
+)
+"""
+
+INSERT = f"""
+INSERT INTO {PG_SCHEMA}.{PG_TABLA}
+    (ddmpr_empresa, ddmrp_item, ddmrp_stock_inv_1anio, "ddmrp_stock_inv_90D")
+VALUES %s
+"""</code></pre>
+  </details>
+  <div class="callout info"><strong>Uso en master:</strong> <code>DIAS INV 1 AÑO</code>, <code>DIAS INV 90D</code>, y como divisor en <code>DEMANDA MES 1 AÑO</code> y <code>DEMANDA MES 90D</code>.</div>
+</section>
+
+<!-- =====================================================================
+     6. VENTAS PICOS
+     ===================================================================== -->
+<section class="doc" id="s6">
+  <h2>6. <code>ddmrp_ventas_picos.py</code> → <code>core.ddmrp_ventas_picos</code></h2>
+  <span class="file-tag">PostgreSQL</span><span class="file-tag">1 fila por empresa + ítem + mes</span>
+  <p class="section-lead">Con la venta mensual de cada ítem detecta meses atípicos (picos) usando el <strong>Z modificado</strong>, y calcula el <strong>ADU</strong> (demanda diaria promedio), el <strong>CV</strong> (coeficiente de variación) y el <strong>VF</strong> (factor de variabilidad). ADU, CV y VF se repiten en todas las filas mensuales del ítem.</p>
+
+  <h3>6.1 Extracción</h3>
+<pre><code>SELECT hev_empresa, hev_codigoitem,
+       date_trunc('month', hev_fechadocumento)::date AS mes,
+       ROUND(SUM(hev_cantidad))::integer             AS cantidad,
+       current_date                                  AS fecha_subida
+FROM core.hec_ventas
+WHERE hev_fechadocumento::date &gt;= '2025-05-01'   -- FECHA_DESDE (fija en el código)
+  AND hev_tipodocumento &lt;&gt; 'PPTO'                 -- excluye presupuesto
+GROUP BY hev_empresa, hev_codigoitem, mes</code></pre>
+  <ul>
+    <li><code>cantidad</code> es la suma de unidades del mes, redondeada a entero. Puede ser <strong>negativa</strong> si en el mes hubo más devoluciones o notas de crédito que ventas.</li>
+    <li>Solo hay filas para meses <strong>con movimiento</strong>; los meses sin venta no generan fila.</li>
+    <li>Incluye el <strong>mes en curso</strong>, que está incompleto.</li>
+    <li><strong>No</strong> filtra por canal ni vendedor y no excluye clientes, a diferencia de <code>vw_ddmrp_ventas</code> (sección 8.1).</li>
+  </ul>
+  <details class="code">
+    <summary>Ver código: constantes de configuración <span class="src">tablas_resumen/ddmrp_ventas_picos.py · líneas 21–41</span></summary>
+<pre data-start="21"><code>FECHA_DESDE = date(2025, 5, 1)
+
+# Filtros opcionales: pon None para traer todas las empresas / todos los ítems
+FILTRO_EMPRESA = None #"STOX"
+FILTRO_ITEM    = None  #"ST_2001143"
+
+# Parámetros en core.ddmrp_parametros (ddmrp_valor_num, solo ddmrp_estado = 1)
+ID_UMBRAL_PICO = 13    # Umbral: es_pico = "SI" cuando |Z modificado| &gt; umbral
+ID_CONSTANTE_Z = 14    # Z modificado = constante * (cantidad - mediana) / MADX
+ID_VF_BAJO  = 7        # VF bajo  (0.2): CV &lt;= LIMITE_VF_BAJO
+ID_VF_MEDIO = 8        # VF medio (0.4): LIMITE_VF_BAJO &lt; CV &lt;= LIMITE_VF_MEDIO, y SKUs no medibles
+ID_VF_ALTO  = 9        # VF alto  (0.6): CV &gt; LIMITE_VF_MEDIO
+
+LIMITE_VF_BAJO  = 0.5
+LIMITE_VF_MEDIO = 1
+
+MESES_VENTANA     = 12  # ADU y CV: últimos 12 meses completos (sin el mes en curso)
+MIN_MESES_LIMPIOS = 3   # con menos meses limpios el CV no se puede medir -&gt; VF medio
+
+DECIMALES_Z = 2        # decimales con los que se redondea el Z modificado
+DECIMALES_DESV = 2     # decimales con los que se redondea desviacion_estandar</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: extracción de venta mensual <span class="src">tablas_resumen/ddmrp_ventas_picos.py · líneas 75–108</span></summary>
+<pre data-start="75"><code>def extraer():
+    sql = """
+        SELECT
+            hev_empresa,
+            hev_codigoitem,
+            date_trunc('month', hev_fechadocumento)::date AS mes,
+            ROUND(SUM(hev_cantidad))::integer             AS cantidad,
+            current_date                                  AS fecha_subida
+        FROM core.hec_ventas
+        WHERE hev_fechadocumento::date &gt;= %s
+          AND hev_tipodocumento &lt;&gt; 'PPTO'
+    """
+    params = [FECHA_DESDE]
+
+    if FILTRO_EMPRESA:
+        sql += " AND hev_empresa = %s"
+        params.append(FILTRO_EMPRESA)
+    if FILTRO_ITEM:
+        sql += " AND hev_codigoitem = %s"
+        params.append(FILTRO_ITEM)
+
+    sql += """
+        GROUP BY hev_empresa, hev_codigoitem, date_trunc('month', hev_fechadocumento)::date
+        ORDER BY hev_empresa, hev_codigoitem, mes;
+    """
+
+    with psycopg2.connect(**POSTGRES) as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        columnas = [d[0] for d in cur.description]
+        filas = cur.fetchall()
+
+    log.info("Extraídas %s filas de core.hec_ventas (desde %s)", len(filas), FECHA_DESDE)
+    return columnas, filas</code></pre>
+  </details>
+
+  <h3>6.2 Detección de picos (por empresa + ítem)</h3>
+  <p>Se toman <strong>todas</strong> las filas mensuales extraídas del ítem (desde 2025-05, incluido el mes en curso):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Paso / campo</th><th>Fórmula</th><th>Equivalente en Excel</th></tr>
+    <tr><td>Mediana</td><td><code>MEDX = mediana(cantidad de todos los meses del ítem)</code></td><td><code>=MEDIANA(...)</code></td></tr>
+    <tr><td>MAD</td><td><code>MADX = mediana(|cantidad − MEDX|)</code></td><td></td></tr>
+    <tr><td><code>desv_mediana</code></td><td><code>|cantidad − MEDX|</code></td><td><code>=ABS(C36-MEDX)</code></td></tr>
+    <tr><td><code>z_modificado</code></td><td><code>0.6745 × (cantidad − MEDX) / MADX</code>; si <code>MADX = 0</code> → <code>0</code></td><td><code>=0,6745*(C36-MEDX)/MADX</code></td></tr>
+    <tr><td><code>es_pico</code></td><td><code>"SI"</code> si <code>|z| &gt; 3.5</code>, si no <code>"NO"</code> (compara el Z <strong>sin redondear</strong>)</td><td><code>=SI(ABS(E36)&gt;ZTHR;"SI";"NO")</code></td></tr>
+    <tr><td><code>demanda_adu</code></td><td><code>cantidad</code> si <code>es_pico = "NO"</code>, si no <code>0</code></td><td><code>=SI(F36="NO";C36;"0")</code></td></tr>
+  </table></div>
+  <ul>
+    <li>La mediana es la de <code>statistics.median</code> de Python: con un número par de datos promedia los dos centrales.</li>
+    <li><code>z_modificado</code> se guarda redondeado a 2 decimales.</li>
+    <li>Si <code>MADX = 0</code> (más de la mitad de los meses con la misma cantidad), el Z es 0 y <strong>ningún mes se marca como pico</strong>.</li>
+    <li><code>demanda_adu</code> es <strong>informativa</strong>: el ADU no se calcula con esta columna (ver 6.3).</li>
+  </ul>
+  <details class="code">
+    <summary>Ver código: mediana, MAD, Z modificado, es_pico y demanda_adu <span class="src">tablas_resumen/ddmrp_ventas_picos.py · líneas 118–142</span></summary>
+<pre data-start="118"><code>def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
+    i_cant = columnas.index("cantidad")
+
+    cantidades = defaultdict(list)
+    for f in filas:
+        cantidades[(f[0], f[1])].append(f[i_cant])
+    medianas = {sku: median(v) for sku, v in cantidades.items()}
+    # MADX: mediana de |cantidad - mediana| de cada empresa + ítem
+    mads = {sku: median(abs(c - medianas[sku]) for c in v) for sku, v in cantidades.items()}
+
+    columnas = (columnas[:i_cant + 1] + ["desv_mediana", "z_modificado", "es_pico", "demanda_adu"]
+                + columnas[i_cant + 1:])
+    nuevas = []
+    for f in filas:
+        sku = (f[0], f[1])
+        dif = f[i_cant] - medianas[sku]
+        # Z modificado = constante_z * (cantidad - mediana) / MADX; 0 si MADX = 0 (no se puede dividir)
+        z = constante_z * dif / mads[sku] if mads[sku] else 0
+        # se compara con el Z sin redondear, como en Excel
+        es_pico = "SI" if abs(z) &gt; umbral_pico else "NO"
+        z_red = round(z, DECIMALES_Z)
+        # demanda para ADU: excluye los picos (se ponen en 0)
+        demanda_adu = f[i_cant] if es_pico == "NO" else 0
+        nuevas.append(f[:i_cant + 1] + (abs(dif), z_red, es_pico, demanda_adu) + f[i_cant + 1:])
+    return columnas, nuevas</code></pre>
+  </details>
+
+  <h3>6.3 ADU, CV y VF (por empresa + ítem)</h3>
+  <h4>Serie mensual del ítem</h4>
+  <ol>
+    <li><code>mes_actual</code> es el primer día del mes de hoy. El mes en curso <strong>no entra</strong> porque está incompleto.</li>
+    <li><code>ini_ventana = mes_actual − 12 meses</code>.</li>
+    <li>La serie va desde <code>max(primer mes con venta del ítem, ini_ventana)</code> hasta el mes anterior a <code>mes_actual</code>: como máximo <strong>12 meses completos</strong>. Si el ítem es nuevo, arranca en su primer mes con venta.</li>
+    <li>Los meses <strong>sin venta</strong> cuentan como <strong>0</strong>.</li>
+    <li>Los <strong>picos altos</strong> se <strong>quitan</strong> de la serie (se eliminan, no se ponen en 0). Pico alto = <code>es_pico = "SI"</code> <strong>y</strong> <code>z_modificado &gt; 0</code>. Los picos bajos (z &lt; 0) se quedan con su valor.</li>
+  </ol>
+
+  <h4>Cálculos</h4>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Fórmula</th><th>Redondeo</th></tr>
+    <tr><td><code>ADU</code></td><td><code>max( promedio(serie) / 30 ; 0 )</code> en unidades por día. Serie vacía → 0.</td><td>2 dec.</td></tr>
+    <tr><td><code>desviacion_estandar</code></td><td>Guarda el <strong>CV</strong>, no la desviación: <code>CV = desv. estándar muestral(serie) / promedio(serie)</code>. Equivale a desviación / ADU porque la unidad se cancela.</td><td>2 dec.</td></tr>
+    <tr><td><code>VF</code></td><td><code>CV × factor del tramo</code> (tabla siguiente)</td><td>2 dec.</td></tr>
+  </table></div>
+  <div class="table-wrap"><table>
+    <tr><th>Condición</th><th>Factor</th><th>VF resultante</th></tr>
+    <tr><td>CV ≤ 0.5</td><td>VF bajo (param 7) = 0.2</td><td>CV × 0.2</td></tr>
+    <tr><td>0.5 &lt; CV ≤ 1</td><td>VF medio (param 8) = 0.4</td><td>CV × 0.4</td></tr>
+    <tr><td>CV &gt; 1</td><td>VF alto (param 9) = 0.6</td><td>CV × 0.6</td></tr>
+    <tr><td><strong>No medible</strong>: serie con menos de 3 meses <strong>o</strong> promedio ≤ 0</td><td>—</td><td>CV = 0 y <strong>VF = 0.40</strong> (el factor medio tal cual, sin multiplicar)</td></tr>
+  </table></div>
+  <ul>
+    <li><code>stdev</code> es la desviación estándar <strong>muestral</strong> (divide entre n − 1), igual que <code>DESVEST.M</code> en Excel.</li>
+    <li>El divisor 30 es fijo: no usa los días reales de cada mes.</li>
+  </ul>
+  <details class="code">
+    <summary>Ver código: serie mensual, ADU, CV y VF <span class="src">tablas_resumen/ddmrp_ventas_picos.py · líneas 145–210</span></summary>
+<pre data-start="145"><code>def sumar_meses(d, n):
+    """Primer día del mes que está n meses después (o antes, si n &lt; 0) de d."""
+    total = d.year * 12 + d.month - 1 + n
+    return date(total // 12, total % 12 + 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# ADU, CV y VF por empresa + ítem (se repiten en todas las filas mensuales del SKU).
+# Serie mensual del SKU:
+#   - últimos 12 meses completos (sin el mes en curso); si el ítem es nuevo, desde su primer mes
+#   - los meses sin venta cuentan como 0
+#   - se quitan los picos ALTOS (es_pico = "SI" y cantidad sobre la mediana, z_modificado &gt; 0)
+# ADU                 = promedio de la serie / 30  (u/día; 0 si sale negativo)
+# desviacion_estandar = CV = stdev(serie) / promedio(serie)  (= desviación estándar / ADU)
+# VF = CV * factor del tramo:
+#   CV &lt;= 0.5        -&gt; CV * 0.2 (VF bajo)
+#   0.5 &lt; CV &lt;= 1    -&gt; CV * 0.4 (VF medio)
+#   CV &gt; 1           -&gt; CV * 0.6 (VF alto)
+#   no medible (menos de 3 meses limpios o promedio &lt;= 0) -&gt; VF = 0.40, CV = 0
+# ---------------------------------------------------------------------------
+def agregar_adu_vf(columnas, filas, factores_vf):
+    bajo, medio, alto = factores_vf
+    i_mes  = columnas.index("mes")
+    i_cant = columnas.index("cantidad")
+    i_pico = columnas.index("es_pico")
+    i_z    = columnas.index("z_modificado")
+
+    mes_actual  = date.today().replace(day=1)          # mes en curso: no entra (incompleto)
+    ini_ventana = sumar_meses(mes_actual, -MESES_VENTANA)
+
+    primer_mes = {}
+    ventas = defaultdict(dict)                         # sku -&gt; {mes: cantidad, o None si es pico alto}
+    for f in filas:
+        sku = (f[0], f[1])
+        primer_mes[sku] = min(primer_mes.get(sku, f[i_mes]), f[i_mes])
+        pico_alto = f[i_pico] == "SI" and f[i_z] &gt; 0
+        ventas[sku][f[i_mes]] = None if pico_alto else f[i_cant]
+
+    calculos = {}
+    for sku, por_mes in ventas.items():
+        serie = []
+        mes = max(primer_mes[sku], ini_ventana)
+        while mes &lt; mes_actual:
+            cantidad = por_mes.get(mes, 0)             # mes sin venta = 0
+            if cantidad is not None:                   # None = pico alto, se quita
+                serie.append(cantidad)
+            mes = sumar_meses(mes, 1)
+
+        promedio = mean(serie) if serie else 0
+        adu = max(promedio / 30, 0)
+        if len(serie) &gt;= MIN_MESES_LIMPIOS and promedio &gt; 0:
+            # CV = desviación estándar / ADU (misma serie; la unidad se cancela)
+            cv = stdev(serie) / promedio
+            if cv &lt;= LIMITE_VF_BAJO:
+                factor = bajo
+            elif cv &lt;= LIMITE_VF_MEDIO:
+                factor = medio
+            else:
+                factor = alto
+            vf = round(cv * factor, DECIMALES_DESV)    # VF = CV * factor del tramo
+        else:
+            cv, vf = 0, medio                          # CV no medible -&gt; VF = 0.40
+        calculos[sku] = (round(cv, DECIMALES_DESV), vf, round(adu, 2))
+
+    return (columnas + ["desviacion_estandar", "VF", "ADU"],
+            [f + calculos[(f[0], f[1])] for f in filas])</code></pre>
+  </details>
+
+  <h3>6.4 Campos de <code>core.ddmrp_ventas_picos</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Tipo</th><th>Nivel</th><th>Descripción</th></tr>
+    <tr><td><code>hev_empresa</code></td><td>varchar</td><td>fila</td><td>Empresa</td></tr>
+    <tr><td><code>hev_codigoitem</code></td><td>varchar</td><td>fila</td><td>Código de ítem (formato <code>MA_2000050</code>)</td></tr>
+    <tr><td><code>mes</code></td><td>date</td><td>fila</td><td>Primer día del mes</td></tr>
+    <tr><td><code>cantidad</code></td><td>integer</td><td>fila</td><td>Unidades vendidas netas del mes (6.1)</td></tr>
+    <tr><td><code>desv_mediana</code></td><td>numeric</td><td>fila</td><td><code>|cantidad − mediana|</code></td></tr>
+    <tr><td><code>z_modificado</code></td><td>numeric</td><td>fila</td><td>Z modificado, 2 decimales</td></tr>
+    <tr><td><code>es_pico</code></td><td>varchar(2)</td><td>fila</td><td><code>SI</code> / <code>NO</code></td></tr>
+    <tr><td><code>demanda_adu</code></td><td>integer</td><td>fila</td><td>Cantidad con los picos (altos y bajos) en 0. Informativa.</td></tr>
+    <tr><td><code>fecha_subida</code></td><td>date</td><td>fila</td><td>Fecha de ejecución</td></tr>
+    <tr><td><code>desviacion_estandar</code></td><td>numeric</td><td>ítem</td><td><strong>CV</strong> de la serie limpia (6.3)</td></tr>
+    <tr><td><code>VF</code></td><td>numeric</td><td>ítem</td><td>Factor de variabilidad (6.3)</td></tr>
+    <tr><td><code>ADU</code></td><td>numeric</td><td>ítem</td><td>Demanda diaria promedio (6.3)</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: estructura de la tabla y orden de ejecución <span class="src">tablas_resumen/ddmrp_ventas_picos.py · líneas 216–260</span></summary>
+<pre data-start="216"><code>CREATE = f"""
+CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
+    hev_empresa          varchar,
+    hev_codigoitem       varchar,
+    mes                  date,
+    cantidad             integer,
+    desv_mediana         numeric,
+    z_modificado         numeric,
+    es_pico              varchar(2),
+    demanda_adu          integer,
+    fecha_subida         date,
+    desviacion_estandar  numeric,
+    "VF"                 numeric,
+    "ADU"                numeric
+)
+"""
+
+# Si la tabla ya existía sin las columnas: CREATE TABLE IF NOT EXISTS no agrega columnas
+ALTER = (f"ALTER TABLE {PG_SCHEMA}.{PG_TABLA} "
+         f'ADD COLUMN IF NOT EXISTS desviacion_estandar numeric, ADD COLUMN IF NOT EXISTS "VF" numeric, '
+         f'ADD COLUMN IF NOT EXISTS "ADU" numeric')
+
+
+def cargar(columnas, filas):
+    # nombres entre comillas: "VF" va en mayúsculas
+    nombres = ", ".join('"' + c + '"' for c in columnas)
+    insert = f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({nombres}) VALUES %s"
+    conn = psycopg2.connect(**POSTGRES)
+    try:
+        with conn:                      # una sola transacción: si falla, no deja la tabla vacía
+            with conn.cursor() as cur:
+                cur.execute(CREATE)
+                cur.execute(ALTER)
+                cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
+                if filas:
+                    execute_values(cur, insert, filas, page_size=5000)
+        log.info("Cargadas %s filas en %s.%s", len(filas), PG_SCHEMA, PG_TABLA)
+    finally:
+        conn.close()
+
+
+def ejecutar():
+    umbral_pico, constante_z, factores_vf = leer_parametros()
+    columnas, filas = agregar_desv_mediana(*extraer(), umbral_pico, constante_z)
+    cargar(*agregar_adu_vf(columnas, filas, factores_vf))</code></pre>
+  </details>
+  <div class="callout info"><strong>Uso en master:</strong> <code>ADU</code> y <code>VF</code>, con <code>SELECT DISTINCT</code> por empresa + ítem.</div>
+</section>
+
+<!-- =====================================================================
+     7. PROVEEDORES
+     ===================================================================== -->
+<section class="doc" id="s7">
+  <h2>7. <code>ddmrp_proveedores.py</code> → <code>core.ddmrp_proveedores</code></h2>
+  <span class="file-tag">PostgreSQL</span><span class="file-tag">1 fila por empresa + proveedor + PI + forwarder</span>
+  <p class="section-lead">Calcula el lead time de cada <strong>pedido de importación (PI)</strong> por proveedor, marca picos con el Z modificado y arma el <strong>DLT</strong> (Decoupled Lead Time) de cada pedido.</p>
+
+  <h3>7.1 Extracción</h3>
+<pre><code>SELECT hfr.hfr_empresa          AS empresa,
+       imp.heim_codigoproveedor AS cod_proveedor,
+       imp.heim_proveedor       AS nombre_proveedor,
+       ped.hpe_numeropi,
+       imp.heim_agente_forwarder,
+       ROUND(AVG(imp.heim_eta_real::date - imp.heim_etd_real::date), 0)           AS leadtime_promedio_etd_eta,
+       ROUND(AVG(ped.hpe_fechanecesaria::date - hfr.hfr_fechadocumento::date), 0) AS leadtime_promedio,
+       COUNT(*) AS total_registros
+FROM core.hec_facturas_reserva hfr
+JOIN core.hec_importaciones imp ON hfr.hfr_numeropi = imp.heim_num_pi
+LEFT JOIN core.hec_pedidos ped  ON hfr.hfr_numeropi = ped.hpe_numeropi
+WHERE hfr.hfr_fechadocumento &lt; CURRENT_DATE - 365      -- param 15
+GROUP BY empresa, cod_proveedor, nombre_proveedor, ped.hpe_numeropi, heim_agente_forwarder</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Campo extraído</th><th>Significado</th><th>Cálculo</th></tr>
+    <tr><td><code>leadtime_promedio_etd_eta</code></td><td>Lead time <strong>puerto de origen → Guayaquil</strong> (tránsito marítimo)</td><td>Promedio de <code>ETA real − ETD real</code> en días, redondeado a entero</td></tr>
+    <tr><td><code>leadtime_promedio</code></td><td>Lead time de <strong>producción</strong> del proveedor</td><td>Promedio de <code>fecha necesaria del pedido − fecha documento de la factura reserva</code> en días, redondeado a entero</td></tr>
+    <tr><td><code>total_registros</code></td><td>Filas unidas</td><td><code>COUNT(*)</code> del join (líneas de factura × registros de importación × registros de pedido)</td></tr>
+  </table></div>
+  <ul>
+    <li>Filtro de fecha: solo facturas reserva con fecha <strong>anterior</strong> a hoy − 365 días (param 15).</li>
+    <li>Si el PI <strong>no existe en <code>hec_pedidos</code></strong>, <code>hpe_numeropi</code> y <code>leadtime_promedio</code> salen <code>NULL</code>, y todas esas facturas del mismo proveedor y forwarder se agrupan en <strong>una sola fila</strong> con PI <code>NULL</code>.</li>
+    <li>Los promedios de <code>ROUND(…, 0)</code> se convierten a <code>int</code> en Python.</li>
+  </ul>
+  <details class="code">
+    <summary>Ver código: extracción de lead times por PI <span class="src">tablas_resumen/ddmrp_proveedores.py · líneas 81–128</span></summary>
+<pre data-start="81"><code>def extraer(dias_datos):
+    sql = """
+        SELECT
+            hfr.hfr_empresa           AS empresa,
+            imp.heim_codigoproveedor  AS cod_proveedor,
+            imp.heim_proveedor        AS nombre_proveedor,
+            ped.hpe_numeropi,
+            imp.heim_agente_forwarder,
+            ROUND(AVG(imp.heim_eta_real::date - imp.heim_etd_real::date), 0)           AS leadtime_promedio_etd_eta,
+            ROUND(AVG(ped.hpe_fechanecesaria::date - hfr.hfr_fechadocumento::date), 0) AS leadtime_promedio,
+            COUNT(*)                  AS total_registros
+        FROM core.hec_facturas_reserva hfr
+        INNER JOIN core.hec_importaciones imp
+            ON hfr.hfr_numeropi = imp.heim_num_pi
+        LEFT JOIN core.hec_pedidos ped
+            ON hfr.hfr_numeropi = ped.hpe_numeropi
+        WHERE hfr.hfr_fechadocumento &lt; CURRENT_DATE - make_interval(days =&gt; %s)
+    """
+    params = [dias_datos]
+
+    if FILTRO_EMPRESA:
+        sql += " AND hfr.hfr_empresa = %s"
+        params.append(FILTRO_EMPRESA)
+    if FILTRO_PROVEEDOR:
+        sql += " AND imp.heim_codigoproveedor = %s"
+        params.append(FILTRO_PROVEEDOR)
+
+    sql += """
+        GROUP BY
+            hfr.hfr_empresa,
+            imp.heim_codigoproveedor,
+            imp.heim_proveedor,
+            ped.hpe_numeropi,
+            imp.heim_agente_forwarder
+        ORDER BY hfr.hfr_empresa, imp.heim_codigoproveedor, ped.hpe_numeropi;
+    """
+
+    with psycopg2.connect(**POSTGRES) as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        columnas = [d[0] for d in cur.description]
+        # ROUND(..., 0) llega como Decimal: se pasa a int para operar con la constante Z (float)
+        i_lts = [columnas.index(c) for c in COLUMNAS_LEADTIME]
+        filas = [tuple(int(v) if i in i_lts and v is not None else v for i, v in enumerate(f))
+                 for f in cur.fetchall()]
+
+    log.info("Extraídas %s filas (hfr_fechadocumento &lt; hoy - %s días)", len(filas), dias_datos)
+    return columnas, filas</code></pre>
+  </details>
+
+  <h3>7.2 Picos de lead time (Z modificado)</h3>
+  <p>Se aplica <strong>dos veces por separado</strong>: sobre <code>leadtime_promedio_etd_eta</code> (columnas con sufijo <code>_etd_eta</code>) y sobre <code>leadtime_promedio</code> (columnas sin sufijo). Se agrupa por <strong>empresa + cod_proveedor</strong> (todos los PI del proveedor).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Fórmula</th></tr>
+    <tr><td>Mediana</td><td><code>MEDX = mediana(lead times no nulos del proveedor)</code></td></tr>
+    <tr><td>MAD</td><td><code>MADX = mediana(|leadtime − MEDX|)</code></td></tr>
+    <tr><td><code>desv_mediana[_etd_eta]</code></td><td><code>|leadtime − MEDX|</code></td></tr>
+    <tr><td><code>z_modificado[_etd_eta]</code></td><td><code>0.6745 × (leadtime − MEDX) / MADX</code> (0 si MADX = 0), guardado con 2 decimales</td></tr>
+    <tr><td><code>es_pico[_etd_eta]</code></td><td><code>"SI"</code> si <code>|z| &gt; 3.5</code> (Z sin redondear)</td></tr>
+    <tr><td><code>leadtime_adu[_etd_eta]</code></td><td><code>leadtime</code> si <code>es_pico = "NO"</code>; <strong>0</strong> si es pico (altos <strong>y</strong> bajos)</td></tr>
+  </table></div>
+  <p>Si el lead time es <code>NULL</code>, las 4 columnas calculadas quedan en <code>NULL</code>.</p>
+  <details class="code">
+    <summary>Ver código: Z modificado y picos para los dos lead times <span class="src">tablas_resumen/ddmrp_proveedores.py · líneas 140–180</span></summary>
+<pre data-start="140"><code>COLUMNAS_LEADTIME = {
+    "leadtime_promedio_etd_eta": "_etd_eta",
+    "leadtime_promedio":         "",
+}
+
+
+def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
+    for col, sufijo in COLUMNAS_LEADTIME.items():
+        columnas, filas = agregar_calculo(columnas, filas, col, sufijo, umbral_pico, constante_z)
+    return columnas, filas
+
+
+def agregar_calculo(columnas, filas, col, sufijo, umbral_pico, constante_z):
+    i_lt = columnas.index(col)
+
+    leadtimes = defaultdict(list)
+    for f in filas:
+        if f[i_lt] is not None:
+            leadtimes[(f[0], f[1])].append(f[i_lt])
+    medianas = {prov: median(v) for prov, v in leadtimes.items()}
+    # MADX: mediana de |leadtime - mediana| de cada empresa + proveedor
+    mads = {prov: median(abs(x - medianas[prov]) for x in v) for prov, v in leadtimes.items()}
+
+    nombres = [n + sufijo for n in ("desv_mediana", "z_modificado", "es_pico", "leadtime_adu")]
+    columnas = columnas[:i_lt + 1] + nombres + columnas[i_lt + 1:]
+    nuevas = []
+    for f in filas:
+        if f[i_lt] is None:
+            nuevas.append(f[:i_lt + 1] + (None, None, None, None) + f[i_lt + 1:])
+            continue
+        prov = (f[0], f[1])
+        dif = f[i_lt] - medianas[prov]
+        # Z modificado = constante_z * (leadtime - mediana) / MADX; 0 si MADX = 0 (no se puede dividir)
+        z = constante_z * dif / mads[prov] if mads[prov] else 0
+        # se compara con el Z sin redondear, como en Excel
+        es_pico = "SI" if abs(z) &gt; umbral_pico else "NO"
+        z_red = round(z, DECIMALES_Z)
+        # leadtime para ADU: excluye los picos (se ponen en 0)
+        leadtime_adu = f[i_lt] if es_pico == "NO" else 0
+        nuevas.append(f[:i_lt + 1] + (abs(dif), z_red, es_pico, leadtime_adu) + f[i_lt + 1:])
+    return columnas, nuevas</code></pre>
+  </details>
+
+  <h3>7.3 DLT por pedido</h3>
+  <div class="formula">dlt = Días confirmación pedido                 (param 10 = 3)
+    + leadtime_adu                               (producción, sin picos; NULL → 0)
+    + Días coordinación booking                  (param 12 = 3)
+    + leadtime_adu_etd_eta                       (tránsito puerto → GYE, sin picos; NULL → 0)
+    + Días desaduanización y recepción en bodega (param 11 = 3)
+
+    = 9 + leadtime_adu + leadtime_adu_etd_eta    (con los parámetros actuales)</div>
+  <p>Un lead time marcado como pico vale 0, así que ese pedido queda con un DLT menor; la fila no se excluye.</p>
+  <details class="code">
+    <summary>Ver código: suma de los días fijos (parámetros 10, 11 y 12) <span class="src">tablas_resumen/ddmrp_proveedores.py · líneas 70–75</span></summary>
+<pre data-start="70"><code>    # días fijos que se suman al DLT
+    dias_fijos_dlt = (valores[ID_DIAS_CONFIRMACION] + valores[ID_DIAS_BOOKING]
+                      + valores[ID_DIAS_DESADUANIZ])
+    factores_ltf = (valores[ID_LTF_BAJO], valores[ID_LTF_MEDIO], valores[ID_LTF_ALTO])
+    return (valores[ID_UMBRAL_PICO], valores[ID_CONSTANTE_Z], int(valores[ID_DIAS_DATOS]),
+            dias_fijos_dlt, factores_ltf)</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: cálculo del DLT por pedido <span class="src">tablas_resumen/ddmrp_proveedores.py · líneas 184–193</span></summary>
+<pre data-start="184"><code># DLT = días confirmación pedido + lead time producción (leadtime_adu)
+#     + días coordinación booking + lead time puerto -&gt; GYE (leadtime_adu_etd_eta)
+#     + días desaduanización y recepción en bodega
+# Un lead time vacío (NULL) se cuenta como 0.
+# ---------------------------------------------------------------------------
+def agregar_dlt(columnas, filas, dias_fijos_dlt):
+    i_prod = columnas.index("leadtime_adu")
+    i_etd  = columnas.index("leadtime_adu_etd_eta")
+    nuevas = [f + (dias_fijos_dlt + (f[i_prod] or 0) + (f[i_etd] or 0),) for f in filas]
+    return columnas + ["dlt"], nuevas</code></pre>
+  </details>
+
+  <h3>7.4 Columna <code>ltf</code> de esta tabla</h3>
+  <div class="formula">DLT ≤ 60          → ltf = DLT × 0.2   (param 4, "LTF bajo")
+60 &lt; DLT ≤ 100    → ltf = DLT × 0.4   (param 5, "LTF medio")
+DLT &gt; 100         → ltf = DLT × 0.6   (param 6, "LTF alto")
+redondeado a 2 decimales</div>
+  <div class="callout warn"><strong>Atención:</strong> este valor está en <strong>días</strong> (DLT × factor). El master <strong>no usa esta columna</strong>: calcula su propio <code>LTF</code> (sección 9.5) con los tramos <strong>al revés</strong> (ver observación 1).</div>
+  <details class="code">
+    <summary>Ver código: columna ltf de proveedores <span class="src">tablas_resumen/ddmrp_proveedores.py · líneas 197–215</span></summary>
+<pre data-start="197"><code># LTF por fila (pedido) según su DLT:
+#   DLT &lt;= 60        -&gt; DLT * LTF bajo  (0.2)
+#   60 &lt; DLT &lt;= 100  -&gt; DLT * LTF medio (0.4)
+#   DLT &gt; 100        -&gt; DLT * LTF alto  (0.6)
+# ---------------------------------------------------------------------------
+def agregar_ltf(columnas, filas, factores_ltf):
+    bajo, medio, alto = factores_ltf
+    i_dlt = columnas.index("dlt")
+    nuevas = []
+    for f in filas:
+        dlt = f[i_dlt]
+        if dlt &lt;= LIMITE_LTF_BAJO:
+            factor = bajo
+        elif dlt &lt;= LIMITE_LTF_MEDIO:
+            factor = medio
+        else:
+            factor = alto
+        nuevas.append(f + (round(dlt * factor, 2),))
+    return columnas + ["ltf"], nuevas</code></pre>
+  </details>
+
+  <h3>7.5 Campos de <code>core.ddmrp_proveedores</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr>
+    <tr><td><code>empresa</code></td><td>varchar</td><td><code>hfr_empresa</code></td></tr>
+    <tr><td><code>cod_proveedor</code></td><td>varchar</td><td><code>heim_codigoproveedor</code></td></tr>
+    <tr><td><code>nombre_proveedor</code></td><td>varchar</td><td><code>heim_proveedor</code></td></tr>
+    <tr><td><code>hpe_numeropi</code></td><td>varchar</td><td>Número de PI (NULL si no está en <code>hec_pedidos</code>)</td></tr>
+    <tr><td><code>heim_agente_forwarder</code></td><td>varchar</td><td>Forwarder</td></tr>
+    <tr><td><code>leadtime_promedio_etd_eta</code></td><td>integer</td><td>Tránsito ETA − ETD (7.1)</td></tr>
+    <tr><td><code>desv_mediana_etd_eta</code></td><td>numeric</td><td>7.2</td></tr>
+    <tr><td><code>z_modificado_etd_eta</code></td><td>numeric</td><td>7.2</td></tr>
+    <tr><td><code>es_pico_etd_eta</code></td><td>varchar(2)</td><td>7.2</td></tr>
+    <tr><td><code>leadtime_adu_etd_eta</code></td><td>integer</td><td>7.2</td></tr>
+    <tr><td><code>leadtime_promedio</code></td><td>integer</td><td>Producción: fecha necesaria − fecha documento (7.1)</td></tr>
+    <tr><td><code>desv_mediana</code></td><td>numeric</td><td>7.2</td></tr>
+    <tr><td><code>z_modificado</code></td><td>numeric</td><td>7.2</td></tr>
+    <tr><td><code>es_pico</code></td><td>varchar(2)</td><td>7.2</td></tr>
+    <tr><td><code>leadtime_adu</code></td><td>integer</td><td>7.2</td></tr>
+    <tr><td><code>total_registros</code></td><td>integer</td><td>7.1</td></tr>
+    <tr><td><code>dlt</code></td><td>numeric</td><td>7.3</td></tr>
+    <tr><td><code>ltf</code></td><td>numeric</td><td>7.4</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: orden de ejecución del script <span class="src">tablas_resumen/ddmrp_proveedores.py · líneas 265–269</span></summary>
+<pre data-start="265"><code>def ejecutar():
+    umbral_pico, constante_z, dias_datos, dias_fijos_dlt, factores_ltf = leer_parametros()
+    columnas, filas = agregar_desv_mediana(*extraer(dias_datos), umbral_pico, constante_z)
+    columnas, filas = agregar_dlt(columnas, filas, dias_fijos_dlt)
+    cargar(*agregar_ltf(columnas, filas, factores_ltf))</code></pre>
+  </details>
+  <div class="callout info"><strong>Uso en master:</strong> solo la columna <code>dlt</code> (sección 9.5, campo <code>DLT</code>).</div>
+</section>
+
+<!-- =====================================================================
+     8. VISTAS
+     ===================================================================== -->
+<section class="doc" id="s8">
+  <h2>8. Vistas de PostgreSQL usadas por el master</h2>
+  <p class="section-lead">Estas vistas <strong>no están en los scripts</strong>; viven en la base <code>dwh</code>. La definición se obtuvo con <code>pg_get_viewdef</code>.</p>
+
+  <h3>8.1 <code>core.vw_ddmrp_ventas</code> · ventas de 365 días, 90 días y mes actual</h3>
+  <p>Una fila por <code>hev_empresa</code> + <code>hev_codigoitem</code>.</p>
+  <h4>Filtros</h4>
+  <ul>
+    <li><code>hev_tipodocumento &lt;&gt; 'PPTO'</code>.</li>
+    <li>Solo vendedores (<code>hev_vendedor_asignado</code> → <code>dim_vendedores.dve_codigo</code>) de categoría <strong>EQUIPO DE MAYOREO</strong> o <strong>EQUIPO B2B</strong>. Las ventas cuyo vendedor no está en <code>dim_vendedores</code> quedan fuera (JOIN interno).</li>
+    <li>Excluye 4 clientes cuyo <code>hev_cuentasocio</code> termina en <code>0190085929001</code>, <code>0195092982001</code>, <code>0190350533001</code> o <code>0195116598001</code>.</li>
+    <li>El ítem debe existir en <code>dim_item</code> (JOIN por <code>dit_codigo</code>).</li>
+    <li><code>hev_fechadocumento &gt;= CURRENT_DATE − 365 días</code> (param 1; si no existe, 365).</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Columna</th><th>Cálculo</th></tr>
+    <tr><td><code>365D</code></td><td><code>SUM(hev_cantidad)</code> de la ventana; si la suma ≤ 0 → 0</td></tr>
+    <tr><td><code>max_cantidad_anio</code></td><td><code>MAX(hev_cantidad)</code>: la <strong>línea de documento</strong> con más unidades del año (no el mes con más venta); 0 si la suma anual ≤ 0</td></tr>
+    <tr><td><code>supera_umbral</code></td><td><code>'SI'</code> si <code>MAX(hev_cantidad) &gt; 0.4 × SUM(hev_cantidad)</code>, es decir, si una sola venta supera el 40 % del año; si no, <code>'NO'</code></td></tr>
+    <tr><td><code>90D</code></td><td><code>SUM(hev_cantidad)</code> con <code>hev_fechadocumento &gt;= CURRENT_DATE − 90</code> (param 2); 0 si no hay</td></tr>
+    <tr><td><code>MES</code></td><td><code>SUM(hev_cantidad)</code> desde el día 1 del mes actual; 0 si no hay</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: definición de la vista <span class="src">PostgreSQL · core.vw_ddmrp_ventas (pg_get_viewdef)</span></summary>
+<pre><code>WITH params AS (
+        SELECT COALESCE(max(ddmrp_parametros.ddmrp_valor_num) FILTER (WHERE ddmrp_parametros.ddmrp_id = 1), 365::double precision)::integer AS dias_anio,
+               COALESCE(max(ddmrp_parametros.ddmrp_valor_num) FILTER (WHERE ddmrp_parametros.ddmrp_id = 2), 90::double precision)::integer AS dias_periodo
+          FROM core.ddmrp_parametros
+       )
+SELECT hv.hev_empresa,
+       hv.hev_codigoitem,
+       CASE
+           WHEN sum(hv.hev_cantidad) &gt; 0::numeric THEN sum(hv.hev_cantidad)
+           ELSE 0::numeric
+       END AS "365D",
+       CASE
+           WHEN sum(hv.hev_cantidad) &gt; 0::numeric THEN max(hv.hev_cantidad)
+           ELSE 0::numeric
+       END AS max_cantidad_anio,
+       CASE
+           WHEN max(hv.hev_cantidad) &gt; (sum(hv.hev_cantidad) * 0.4) THEN 'SI'::text
+           ELSE 'NO'::text
+       END AS supera_umbral,
+       COALESCE(sum(hv.hev_cantidad) FILTER (WHERE hv.hev_fechadocumento &gt;= (CURRENT_DATE - p.dias_periodo::double precision * '1 day'::interval)), 0::numeric) AS "90D",
+       COALESCE(sum(hv.hev_cantidad) FILTER (WHERE hv.hev_fechadocumento &gt;= date_trunc('month'::text, CURRENT_DATE::timestamp with time zone)), 0::numeric) AS "MES"
+  FROM core.hec_ventas hv
+  JOIN core.dim_vendedores dve ON dve.dve_codigo::text = hv.hev_vendedor_asignado::text
+  JOIN core.dim_item di ON di.dit_codigo::text = hv.hev_codigoitem::text
+  CROSS JOIN params p
+ WHERE hv.hev_tipodocumento::text &lt;&gt; 'PPTO'::text
+   AND (dve.dve_categoria::text = ANY (ARRAY['EQUIPO DE MAYOREO'::character varying, 'EQUIPO B2B'::character varying]::text[]))
+   AND hv.hev_cuentasocio::text !~~ '%0190085929001'::text
+   AND hv.hev_cuentasocio::text !~~ '%0195092982001'::text
+   AND hv.hev_cuentasocio::text !~~ '%0190350533001'::text
+   AND hv.hev_cuentasocio::text !~~ '%0195116598001'::text
+   AND hv.hev_fechadocumento &gt;= (CURRENT_DATE - p.dias_anio::double precision * '1 day'::interval)
+ GROUP BY hv.hev_empresa, hv.hev_codigoitem;</code></pre>
+  </details>
+
+  <h3>8.2 <code>core.vw_ddmrp_trans_ped</code> · suministro abierto</h3>
+  <p>Una fila por ítem de <code>dim_item</code> (<code>dit_codigo</code>, <code>dit_empresa</code>). Tránsitos y facturas se agrupan <strong>solo por código de ítem</strong>; el código ya lleva el prefijo de empresa (por ejemplo <code>MA_</code>).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Columna</th><th>Origen</th><th>Cálculo</th></tr>
+    <tr><td><code>30D</code></td><td><code>core.hec_transitos</code></td><td><code>SUM(het_cantidad)</code> con <code>het_estado = 'ABIERTO'</code> y <code>het_fechaentrega</code> entre <strong>hoy y hoy + 30</strong>, inclusive</td></tr>
+    <tr><td><code>60D</code></td><td><code>core.hec_transitos</code></td><td><code>SUM(het_cantidad)</code> con <code>het_estado = 'ABIERTO'</code> y <code>het_fechaentrega</code> <strong>&gt; hoy + 30 y ≤ hoy + 60</strong></td></tr>
+    <tr><td><code>pedido</code></td><td><code>core.hec_facturas_reserva</code></td><td><code>SUM(hfr_backorder)</code> con <code>hfr_estado = 'ABIERTO'</code> y <code>hfr_pedidocompleto = 'PEDIDO'</code></td></tr>
+    <tr><td><code>backorder</code></td><td><code>core.hec_facturas_reserva</code></td><td><code>SUM(hfr_backorder)</code> con <code>hfr_estado = 'ABIERTO'</code> y <code>hfr_pedidocompleto = 'BACKORDER'</code></td></tr>
+  </table></div>
+  <p>Todas las columnas usan <code>COALESCE(…, 0)</code>. Los tránsitos abiertos con entrega <strong>anterior a hoy</strong> (vencidos) o <strong>posterior a hoy + 60</strong> no entran en ninguna columna.</p>
+  <details class="code">
+    <summary>Ver código: definición de la vista <span class="src">PostgreSQL · core.vw_ddmrp_trans_ped (pg_get_viewdef)</span></summary>
+<pre><code>WITH t_transitos AS (
+        SELECT hec_transitos.het_codigoitem,
+               COALESCE(sum(hec_transitos.het_cantidad) FILTER (WHERE hec_transitos.het_estado::text = 'ABIERTO'::text
+                        AND hec_transitos.het_fechaentrega &gt;= CURRENT_DATE
+                        AND hec_transitos.het_fechaentrega &lt;= (CURRENT_DATE + 30)), 0::numeric) AS "30D",
+               COALESCE(sum(hec_transitos.het_cantidad) FILTER (WHERE hec_transitos.het_estado::text = 'ABIERTO'::text
+                        AND hec_transitos.het_fechaentrega &gt; (CURRENT_DATE + 30)
+                        AND hec_transitos.het_fechaentrega &lt;= (CURRENT_DATE + 60)), 0::numeric) AS "60D"
+          FROM core.hec_transitos
+         GROUP BY hec_transitos.het_codigoitem
+       ), t_facturas AS (
+        SELECT hec_facturas_reserva.hfr_codigoitem,
+               COALESCE(sum(hec_facturas_reserva.hfr_backorder) FILTER (WHERE hec_facturas_reserva.hfr_estado::text = 'ABIERTO'::text
+                        AND hec_facturas_reserva.hfr_pedidocompleto::text = 'PEDIDO'::text), 0::numeric) AS pedido,
+               COALESCE(sum(hec_facturas_reserva.hfr_backorder) FILTER (WHERE hec_facturas_reserva.hfr_estado::text = 'ABIERTO'::text
+                        AND hec_facturas_reserva.hfr_pedidocompleto::text = 'BACKORDER'::text), 0::numeric) AS backorder
+          FROM core.hec_facturas_reserva
+         GROUP BY hec_facturas_reserva.hfr_codigoitem
+       )
+SELECT di.dit_codigo,
+       di.dit_empresa,
+       COALESCE(tt."30D", 0::numeric) AS "30D",
+       COALESCE(tt."60D", 0::numeric) AS "60D",
+       COALESCE(tf.pedido, 0::numeric) AS pedido,
+       COALESCE(tf.backorder, 0::numeric) AS backorder
+  FROM core.dim_item di
+  LEFT JOIN t_transitos tt ON di.dit_codigo::text = tt.het_codigoitem::text
+  LEFT JOIN t_facturas tf ON di.dit_codigo::text = tf.hfr_codigoitem::text;</code></pre>
+  </details>
+
+  <h3>8.3 <code>core.vw_ddmrp_item_proveedor</code> · relación ítem ↔ proveedor</h3>
+<pre><code>SELECT DISTINCT hfr.hfr_empresa AS empresa, hfr.hfr_codigoitem AS codigoitem, imp.heim_codigoproveedor
+FROM core.hec_facturas_reserva hfr
+JOIN core.hec_importaciones imp ON hfr.hfr_numeropi = imp.heim_num_pi</code></pre>
+  <p>Todos los proveedores a los que alguna vez se importó el ítem, sin filtro de fecha. Se usa para llevar el DLT del proveedor al ítem.</p>
+</section>
+
+<!-- =====================================================================
+     9. MASTER
+     ===================================================================== -->
+<section class="doc" id="s9">
+  <h2>9. <code>master.py</code> → <code>core.ddmrp</code> (tabla final)</h2>
+  <span class="file-tag">PostgreSQL</span><span class="file-tag">1 fila por registro de dim_item</span>
+
+  <h3>9.1 Construcción de la tabla</h3>
+  <ol>
+    <li><code>CREATE TABLE IF NOT EXISTS core.ddmrp AS &lt;SQL_DDMRP&gt; WITH NO DATA</code>: la estructura sale de las columnas del SELECT.</li>
+    <li>Crea una tabla temporal vacía con el mismo SELECT, lee sus columnas y tipos de <code>pg_attribute</code> y hace <code>ADD COLUMN IF NOT EXISTS</code> de cada una. Así, si se agrega una columna al SELECT, aparece sola en la tabla.</li>
+    <li>Agrega, si no existen, las columnas que se llenan por UPDATE, todas <code>numeric DEFAULT 0</code>: <code>ADU</code>, <code>ZONA ROJA BASE</code>, <code>ZONA ROJA SEGURIDAD</code>, <code>TOR</code>, <code>ZONA AMARILLA</code>, <code>TOY</code>, <code>ZONA VERDE</code>, <code>TOG</code>, <code>NFP</code> y <code>PEDIDO SUGERIDO</code>.</li>
+    <li><code>TRUNCATE</code> + <code>INSERT … SQL_DDMRP</code>.</li>
+    <li>UPDATEs en este orden: ADU → LTF → ZONA ROJA BASE → ZONA ROJA SEGURIDAD → TOR → ZONA AMARILLA → TOY → ZONA VERDE → TOG → NFP → PEDIDO SUGERIDO.</li>
+  </ol>
+  <details class="code">
+    <summary>Ver código: cargar_ddmrp() — creación, columnas, carga y UPDATEs <span class="src">master.py · líneas 220–287</span></summary>
+<pre data-start="220"><code>def cargar_ddmrp():
+    """Crea core.ddmrp si no existe (con las columnas del SELECT), borra sus registros e inserta."""
+    conn = psycopg2.connect(**POSTGRES)
+    try:
+        with conn:                      # una sola transacción: si falla, no deja la tabla vacía
+            with conn.cursor() as cur:
+                cur.execute(f"CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} AS {SQL_DDMRP} WITH NO DATA")
+                # columnas y tipos del SELECT (tabla temporal vacía)
+                cur.execute(f"CREATE TEMP TABLE tmp_ddmrp AS {SQL_DDMRP} WITH NO DATA")
+                cur.execute("""
+                    SELECT attname, format_type(atttypid, atttypmod)
+                    FROM pg_attribute
+                    WHERE attrelid = 'tmp_ddmrp'::regclass AND attnum &gt; 0 AND NOT attisdropped
+                    ORDER BY attnum
+                """)
+                columnas = cur.fetchall()
+                # si la tabla ya existía, agrega las columnas nuevas del SELECT (no borra la tabla)
+                for nombre, tipo in columnas:
+                    cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} '
+                                f'ADD COLUMN IF NOT EXISTS "{nombre}" {tipo}')
+                # nombres entre comillas (tienen mayúsculas, espacios y Ñ)
+                nombres = ", ".join('"' + nombre + '"' for nombre, _ in columnas)
+                # ADU se llena aparte (SQL_ADU); ítems sin venta quedan en 0
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU" numeric DEFAULT 0')
+                # zona roja y TOR se llenan aparte (SQL_ZONA_ROJA_BASE, SQL_ZONA_ROJA_SEGURIDAD, SQL_TOR)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA BASE" numeric DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA SEGURIDAD" numeric DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TOR" numeric DEFAULT 0')
+                # zona amarilla y TOY se llenan aparte (SQL_ZONA_AMARILLA, SQL_TOY)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA AMARILLA" numeric DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TOY" numeric DEFAULT 0')
+                # zona verde se llena aparte (SQL_ZONA_VERDE)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA VERDE" numeric DEFAULT 0')
+                # TOG se llena aparte (SQL_TOG)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TOG" numeric DEFAULT 0')
+                # NFP y pedido sugerido se llenan aparte (SQL_NFP, SQL_PEDIDO_SUGERIDO)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "NFP" numeric DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "PEDIDO SUGERIDO" numeric DEFAULT 0')
+                cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
+                cur.execute(f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({nombres}) {SQL_DDMRP}")
+                filas = cur.rowcount
+                # pega el ADU por empresa + código de ítem
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
+                    SET "ADU" = a.adu
+                    FROM ({SQL_ADU}) a
+                    WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
+                """)
+                log.info("ADU actualizado en %s ítems", cur.rowcount)
+                # LTF según el tramo del DLT de cada ítem
+                cur.execute(SQL_LTF)
+                # zona roja (con ADU, DLT, LTF y VF ya cargados) y luego el TOR
+                cur.execute(SQL_ZONA_ROJA_BASE)
+                cur.execute(SQL_ZONA_ROJA_SEGURIDAD)
+                cur.execute(SQL_TOR)
+                # zona amarilla y luego el TOY (usa el TOR)
+                cur.execute(SQL_ZONA_AMARILLA)
+                cur.execute(SQL_TOY)
+                # zona verde (usa ADU y ZONA ROJA BASE)
+                cur.execute(SQL_ZONA_VERDE)
+                # TOG (usa TOY y ZONA VERDE)
+                cur.execute(SQL_TOG)
+                # NFP y luego el pedido sugerido (usa NFP, TOY y TOG)
+                cur.execute(SQL_NFP)
+                cur.execute(SQL_PEDIDO_SUGERIDO)
+        log.info("Cargadas %s filas en %s.%s", filas, PG_SCHEMA, PG_TABLA)
+    finally:
+        conn.close()</code></pre>
+  </details>
+  <p>Todo en <strong>una transacción</strong>. <strong>Universo de filas:</strong> una por registro de <code>core.dim_item</code> (todos los ítems del maestro, activos o no, con o sin venta). Los demás orígenes entran con <code>LEFT JOIN</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Alias</th><th>Origen</th><th>Join</th></tr>
+    <tr><td><code>b</code></td><td><code>core.dim_item</code></td><td>base</td></tr>
+    <tr><td><code>a</code></td><td><code>core.vw_ddmrp_ventas</code></td><td><code>hev_empresa = dit_empresa AND hev_codigoitem = dit_codigo</code></td></tr>
+    <tr><td><code>c</code></td><td><code>core.ddmrp_inventario</code></td><td><code>ddmpr_empresa = dit_empresa AND ddmrp_item = dit_identificador</code></td></tr>
+    <tr><td><code>d</code></td><td><code>core.ddmrp_bodegas</code></td><td><code>empresa = dit_empresa AND codigo = dit_codigo</code></td></tr>
+    <tr><td><code>e</code></td><td><code>core.vw_ddmrp_trans_ped</code></td><td><code>dit_empresa</code> + <code>dit_codigo</code></td></tr>
+    <tr><td><code>f</code></td><td>subconsulta de DLT (9.5)</td><td><code>empresa</code> + <code>codigoitem</code></td></tr>
+    <tr><td><code>g</code></td><td><code>DISTINCT hev_empresa, hev_codigoitem, "VF"</code> de <code>ddmrp_ventas_picos</code></td><td><code>hev_empresa</code> + <code>hev_codigoitem</code></td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: FROM y JOINs de SQL_DDMRP <span class="src">master.py · líneas 82–109</span></summary>
+<pre data-start="82"><code>FROM core.dim_item b
+LEFT JOIN core.vw_ddmrp_ventas a ON a.hev_empresa = b.dit_empresa AND a.hev_codigoitem = b.dit_codigo
+LEFT JOIN core.ddmrp_inventario c ON b.dit_empresa = c.ddmpr_empresa AND b.dit_identificador = c.ddmrp_item
+LEFT JOIN core.ddmrp_bodegas d ON b.dit_empresa = d.empresa AND b.dit_codigo = d.codigo
+LEFT JOIN core.vw_ddmrp_trans_ped e ON b.dit_empresa = e.dit_empresa AND b.dit_codigo = e.dit_codigo
+-- DLT por ítem: promedio por proveedor (ddmrp_proveedores) llevado al ítem con
+-- vw_ddmrp_item_proveedor; si el ítem tiene varios proveedores se promedian
+LEFT JOIN (
+	SELECT
+		v.empresa,
+		v.codigoitem,
+		ROUND(AVG(p.dlt), 2) AS dlt
+	FROM core.vw_ddmrp_item_proveedor v
+	JOIN (
+		SELECT
+			empresa,
+			cod_proveedor,
+			ROUND(AVG(dlt), 2) AS dlt
+		FROM core.ddmrp_proveedores
+		GROUP BY empresa, cod_proveedor
+	) p ON p.empresa = v.empresa AND p.cod_proveedor = v.heim_codigoproveedor
+	GROUP BY v.empresa, v.codigoitem
+) f ON b.dit_empresa = f.empresa AND b.dit_codigo = f.codigoitem
+-- VF por ítem (ddmrp_ventas_picos tiene un solo VF por empresa + ítem)
+LEFT JOIN (
+	SELECT DISTINCT hev_empresa, hev_codigoitem, "VF"
+	FROM core.ddmrp_ventas_picos
+) g ON b.dit_empresa = g.hev_empresa AND b.dit_codigo = g.hev_codigoitem</code></pre>
+  </details>
+
+  <h3>9.2 Campos descriptivos</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Origen</th><th>Cálculo</th></tr>
+    <tr><td><code>EMPRESA</code></td><td><code>dim_item.dit_empresa</code></td><td>directo</td></tr>
+    <tr><td><code>CODIGO_ITEM</code></td><td><code>dim_item.dit_codigo</code></td><td>directo (ej. <code>MA_2000050</code>)</td></tr>
+    <tr><td><code>DESCRIPCION</code></td><td><code>dim_item.dit_nombre</code></td><td>directo</td></tr>
+    <tr><td><code>GRUPO</code></td><td><code>dim_item.dit_grupo</code></td><td>directo</td></tr>
+    <tr><td><code>RIN</code></td><td><code>dim_item.dit_rin</code></td><td>directo</td></tr>
+    <tr><td><code>SERIE</code></td><td><code>dim_item.dit_serie</code></td><td>directo</td></tr>
+    <tr><td><code>ANCHO</code></td><td><code>dim_item.dit_ancho</code></td><td>directo</td></tr>
+    <tr><td><code>MARCA</code></td><td><code>dim_item.dit_nombrefabricante</code></td><td>directo</td></tr>
+    <tr><td><code>BARRAS</code></td><td><code>dim_item.dit_codigobarras</code></td><td>directo</td></tr>
+    <tr><td><code>DISEÑO</code></td><td><code>dim_item.dit_disenio</code></td><td>directo</td></tr>
+    <tr><td><code>ACTIVO</code></td><td><code>dim_item.dit_activo</code></td><td>directo</td></tr>
+    <tr><td><code>ARTICULO_COMPRA</code></td><td><code>dim_item.dit_compra</code></td><td>directo</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: campos descriptivos en SQL_DDMRP <span class="src">master.py · líneas 34–46</span></summary>
+<pre data-start="34"><code>SELECT
+	b.dit_empresa AS "EMPRESA",
+	b.dit_codigo AS "CODIGO_ITEM",
+	b.dit_nombre AS "DESCRIPCION",
+	b.dit_grupo AS "GRUPO",
+	b.dit_rin as "RIN",
+	b.dit_serie as "SERIE",
+	b.dit_ancho AS "ANCHO",
+	b.dit_nombrefabricante AS "MARCA",
+	b.dit_codigobarras AS "BARRAS",
+	b.dit_disenio AS "DISEÑO",
+	b.dit_activo AS "ACTIVO",
+	b.dit_compra AS "ARTICULO_COMPRA",</code></pre>
+  </details>
+
+  <h3>9.3 Campos de demanda</h3>
+  <p>Notación: <code>V365 = a."365D"</code>, <code>V90 = a."90D"</code>, <code>D365 = c.ddmrp_stock_inv_1anio</code>, <code>D90 = c."ddmrp_stock_inv_90D"</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Fórmula</th><th>Explicación</th></tr>
+    <tr><td><code>VTAS_1_AÑO</code></td><td><code>ROUND(V365, 2)</code></td><td>Unidades netas vendidas en los últimos 365 días, canal mayoreo/B2B (8.1). <code>NULL</code> si el ítem no tuvo venta.</td></tr>
+    <tr><td><code>VENTAS MES PICO</code></td><td><code>ROUND(max_cantidad_anio, 2)</code></td><td>La línea de venta individual más grande del año (8.1).</td></tr>
+    <tr><td><code>DIF PICO VTAS ULT AÑO VS # VTAS ULT AÑO</code></td><td><code>supera_umbral</code></td><td><code>SI</code> si esa línea supera el 40 % de la venta anual.</td></tr>
+    <tr><td><code>DIAS INV 1 AÑO</code></td><td><code>ROUND(D365, 2)</code></td><td>Días con stock en el último año (sección 5).</td></tr>
+    <tr><td><code>DEMANDA MES 1 AÑO</code></td><td><code>ROUND(COALESCE(V365 / NULLIF(D365, 0) × 30, 0), 2)</code></td><td>Venta por día con stock × 30: demanda mensual corregida por quiebres. 0 si no hay días con stock o no hay venta.</td></tr>
+    <tr><td><code>VENTA 90D</code></td><td><code>ROUND(V90, 2)</code></td><td>Venta de los últimos 90 días (8.1).</td></tr>
+    <tr><td><code>DIAS INV 90D</code></td><td><code>ROUND(D90, 2)</code></td><td>Días con stock en los últimos 90 días (sección 5).</td></tr>
+    <tr><td><code>DEMANDA MES 90D</code></td><td><code>ROUND(COALESCE(V90 / NULLIF(D90, 0) × 30, 0), 2)</code></td><td>Igual que la anual, con la ventana de 90 días.</td></tr>
+    <tr><td><code>% VAR DEMANDA</code></td><td><code>ROUND(COALESCE(((V90/D90) / (V365/D365) − 1) × 100, 0), 2)</code></td><td>Variación % de la demanda diaria reciente (90 días) frente a la anual. Positivo = la demanda sube. 0 si no se puede dividir.</td></tr>
+    <tr><td><code>VENTAS MES ACTUAL</code></td><td><code>ROUND(a."MES", 2)</code></td><td>Venta desde el día 1 del mes en curso.</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: campos de demanda en SQL_DDMRP <span class="src">master.py · líneas 47–66</span></summary>
+<pre data-start="47"><code>	ROUND(a."365D"::numeric, 2) AS "VTAS_1_AÑO",
+	ROUND(a.max_cantidad_anio::numeric, 2) AS "VENTAS MES PICO",
+	a.supera_umbral AS "DIF PICO VTAS ULT AÑO VS # VTAS ULT AÑO",
+	ROUND(c.ddmrp_stock_inv_1anio::numeric, 2) AS "DIAS INV 1 AÑO",
+	ROUND(COALESCE(
+		a."365D"::numeric / NULLIF(c.ddmrp_stock_inv_1anio, 0) * 30
+	, 0)::numeric, 2) AS "DEMANDA MES 1 AÑO",
+	ROUND(a."90D"::numeric, 2) AS "VENTA 90D",
+	ROUND(c."ddmrp_stock_inv_90D"::numeric, 2) AS "DIAS INV 90D",
+	ROUND(COALESCE(
+		a."90D"::numeric / NULLIF(c."ddmrp_stock_inv_90D", 0) * 30
+	, 0)::numeric, 2) AS "DEMANDA MES 90D",
+	ROUND(COALESCE(
+		(
+			(a."90D"::numeric / NULLIF(c."ddmrp_stock_inv_90D", 0))
+			/ NULLIF(a."365D"::numeric / NULLIF(c.ddmrp_stock_inv_1anio, 0), 0)
+			- 1
+		) * 100
+	, 0)::numeric, 2) AS "% VAR DEMANDA",
+	ROUND(a."MES"::numeric, 2) AS "VENTAS MES ACTUAL",</code></pre>
+  </details>
+
+  <h3>9.4 Campos de inventario y suministro</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Fórmula</th><th>Explicación</th></tr>
+    <tr><td><code>EN STOCK</code></td><td><code>ROUND(d.sum, 2)</code></td><td>Stock físico actual en bodegas de venta (SAP HANA, sección 4).</td></tr>
+    <tr><td><code>TRANSITO 30D</code></td><td><code>ROUND(e."30D", 2)</code></td><td>Tránsitos abiertos que llegan en 0–30 días (8.2).</td></tr>
+    <tr><td><code>TRANSITO 60D</code></td><td><code>ROUND(e."60D", 2)</code></td><td>Tránsitos abiertos que llegan en 31–60 días (8.2).</td></tr>
+    <tr><td><code>PEDIDOS</code></td><td><code>ROUND(e.pedido, 2)</code></td><td>Pendiente de facturas reserva abiertas tipo PEDIDO (8.2).</td></tr>
+    <tr><td><code>BACKORDERS</code></td><td><code>ROUND(e.backorder, 2)</code></td><td>Pendiente de facturas reserva abiertas tipo BACKORDER (8.2).</td></tr>
+    <tr><td><code>STOCK TOTAL</code></td><td><code>ROUND(EN STOCK + TRANSITO 30D + TRANSITO 60D + PEDIDOS + BACKORDERS, 2)</code>, nulos = 0</td><td>Inventario físico más todo el suministro abierto.</td></tr>
+    <tr><td><code>MES INV TOTAL</code></td><td><code>ROUND(COALESCE(STOCK TOTAL / NULLIF(DEMANDA MES 90D, 0), 0), 2)</code></td><td>Meses de cobertura del stock total con la demanda de 90 días. 0 si la demanda es 0.</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: stock, tránsitos, pedidos, STOCK TOTAL y MES INV TOTAL <span class="src">master.py · líneas 67–78</span></summary>
+<pre data-start="67"><code>	ROUND(d.sum::numeric, 2) AS "EN STOCK",
+	ROUND(e."30D"::numeric, 2) AS "TRANSITO 30D",
+	ROUND(e."60D"::numeric, 2) AS "TRANSITO 60D",
+	ROUND(e.pedido::numeric, 2) AS "PEDIDOS",
+	ROUND(e.backorder::numeric, 2) AS "BACKORDERS",
+	ROUND(COALESCE(
+		(COALESCE(d.sum, 0) + COALESCE(e."30D", 0) + COALESCE(e."60D", 0)
+		 + COALESCE(e.pedido, 0) + COALESCE(e.backorder, 0))::numeric
+		/ NULLIF(a."90D"::numeric / NULLIF(c."ddmrp_stock_inv_90D", 0) * 30, 0)
+	, 0)::numeric, 2) AS "MES INV TOTAL",
+	ROUND((COALESCE(d.sum, 0) + COALESCE(e."30D", 0) + COALESCE(e."60D", 0)
+	 + COALESCE(e.pedido, 0) + COALESCE(e.backorder, 0))::numeric, 2) AS "STOCK TOTAL",</code></pre>
+  </details>
+
+  <h3>9.5 Campos DDMRP de entrada</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Cálculo</th></tr>
+    <tr><td><code>DLT</code></td><td><strong>Paso 1, por proveedor:</strong> <code>AVG(dlt)</code> de todas sus filas en <code>ddmrp_proveedores</code> (empresa + cod_proveedor), 2 decimales.<br><strong>Paso 2, por ítem:</strong> <code>AVG</code> de los DLT de los proveedores del ítem según <code>vw_ddmrp_item_proveedor</code>; si tiene varios proveedores se promedian. 2 decimales.<br>Ítem sin proveedor o sin historial → <strong>0</strong>.</td></tr>
+    <tr><td><code>VF</code></td><td><code>VF</code> del ítem en <code>ddmrp_ventas_picos</code> (6.3). Sin ventas desde 2025-05 → <strong>0</strong>.</td></tr>
+    <tr><td><code>ADU</code></td><td><code>ADU</code> del ítem en <code>ddmrp_ventas_picos</code> (6.3), con UPDATE por <code>EMPRESA</code> + <code>CODIGO_ITEM</code>. Sin venta → <strong>0</strong> (default).</td></tr>
+    <tr><td><code>LTF</code></td><td>Se inserta en 0 y luego <code>SQL_LTF</code> lo actualiza:<br><code>DLT = 0</code> → <strong>0</strong><br><code>DLT ≤ 60</code> → param 6 = <strong>0.6</strong><br><code>60 &lt; DLT ≤ 100</code> → param 5 = <strong>0.4</strong><br><code>DLT &gt; 100</code> → param 4 = <strong>0.2</strong><br>Lead time corto → factor alto; lead time largo → factor bajo.</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: DLT, LTF inicial y VF en SQL_DDMRP <span class="src">master.py · líneas 79–81</span></summary>
+<pre data-start="79"><code>	COALESCE(f.dlt, 0) AS "DLT",
+	0::numeric AS "LTF",               -- se llena después con SQL_LTF (tramo del DLT)
+	COALESCE(g."VF", 0) AS "VF"</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: ADU (consulta y UPDATE) <span class="src">master.py · líneas 116–119 y 262–267</span></summary>
+<pre data-start="116"><code>SQL_ADU = """
+SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU" AS adu
+FROM core.ddmrp_ventas_picos
+"""</code></pre>
+<pre data-start="262"><code>                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
+                    SET "ADU" = a.adu
+                    FROM ({SQL_ADU}) a
+                    WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
+                """)</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: LTF según el tramo del DLT <span class="src">master.py · líneas 121–136</span></summary>
+<pre data-start="121"><code># ---------------------------------------------------------------------------
+# LTF por ítem: factor según el tramo del DLT del ítem (parámetros 4, 5 y 6)
+#   DLT = 0          -&gt; 0 (sin lead time)
+#   DLT &lt;= 60        -&gt; LTF alto  (param 6, 0.6)
+#   60 &lt; DLT &lt;= 100  -&gt; LTF medio (param 5, 0.4)
+#   DLT &gt; 100        -&gt; LTF bajo  (param 4, 0.2)
+# ---------------------------------------------------------------------------
+SQL_LTF = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "LTF" = CASE
+	WHEN "DLT" = 0   THEN 0
+	WHEN "DLT" &lt;= 60  THEN (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 6)
+	WHEN "DLT" &lt;= 100 THEN (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 5)
+	ELSE                   (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 4)
+END
+"""</code></pre>
+  </details>
+
+  <h3>9.6 Zonas del buffer</h3>
+  <div class="buffer" aria-label="Estructura del buffer">
+    <div class="zone line"><span class="lbl">TOG = TOY + ZONA VERDE</span></div>
+    <div class="zone g"><span class="lbl">Zona verde</span><span class="f">máx(ADU × 30 ; ADU × DLT × LTF)</span></div>
+    <div class="zone line"><span class="lbl">TOY = TOR + ZONA AMARILLA</span><span class="f">disparo del pedido</span></div>
+    <div class="zone y"><span class="lbl">Zona amarilla</span><span class="f">ADU × DLT</span></div>
+    <div class="zone line"><span class="lbl">TOR = ROJA BASE + ROJA SEGURIDAD</span></div>
+    <div class="zone r"><span class="lbl">Roja seguridad</span><span class="f">ROJA BASE × VF</span></div>
+    <div class="zone r"><span class="lbl">Roja base</span><span class="f">ADU × DLT × LTF</span></div>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Fórmula</th><th>Redondeo</th><th>Significado</th></tr>
+    <tr><td><code>ZONA ROJA BASE</code></td><td><code>ADU × DLT × LTF</code></td><td>2 dec.</td><td>Base de la zona de seguridad</td></tr>
+    <tr><td><code>ZONA ROJA SEGURIDAD</code></td><td><code>ZONA ROJA BASE × VF</code></td><td>2 dec.</td><td>Refuerzo por variabilidad de la demanda</td></tr>
+    <tr><td><code>TOR</code> (Top of Red)</td><td><code>ZONA ROJA BASE + ZONA ROJA SEGURIDAD</code></td><td>—</td><td>Zona roja total</td></tr>
+    <tr><td><code>ZONA AMARILLA</code></td><td><code>ADU × DLT</code></td><td>2 dec.</td><td>Demanda esperada durante el lead time</td></tr>
+    <tr><td><code>TOY</code> (Top of Yellow)</td><td><code>TOR + ZONA AMARILLA</code></td><td>—</td><td>Nivel que dispara el pedido</td></tr>
+    <tr><td><code>ZONA VERDE</code></td><td><code>GREATEST(ROUND(ADU × Ciclo de Pedido (param 3 = 30), 2) ; ZONA ROJA BASE)</code></td><td>2 dec.</td><td>Tamaño y frecuencia del pedido. <strong>Sin MOQ</strong> por ahora.</td></tr>
+    <tr><td><code>TOG</code> (Top of Green)</td><td><code>TOY + ZONA VERDE</code></td><td>—</td><td>Tope máximo del buffer</td></tr>
+  </table></div>
+  <details class="code">
+    <summary>Ver código: zona roja base, zona roja seguridad y TOR <span class="src">master.py · líneas 138–159</span></summary>
+<pre data-start="138"><code># ---------------------------------------------------------------------------
+# ZONA ROJA por ítem:
+#   ZONA ROJA BASE      = ADU * DLT * LTF
+#   ZONA ROJA SEGURIDAD = ZONA ROJA BASE * VF
+# ---------------------------------------------------------------------------
+SQL_ZONA_ROJA_BASE = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "ZONA ROJA BASE" = ROUND("ADU" * "DLT" * "LTF", 2)
+"""
+
+SQL_ZONA_ROJA_SEGURIDAD = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "ZONA ROJA SEGURIDAD" = ROUND("ZONA ROJA BASE" * "VF", 2)
+"""
+
+# ---------------------------------------------------------------------------
+# TOR (Top of Red = zona roja total): TOR = ZONA ROJA BASE + ZONA ROJA SEGURIDAD
+# ---------------------------------------------------------------------------
+SQL_TOR = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "TOR" = "ZONA ROJA BASE" + "ZONA ROJA SEGURIDAD"
+"""</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: zona amarilla y TOY <span class="src">master.py · líneas 161–173</span></summary>
+<pre data-start="161"><code># ---------------------------------------------------------------------------
+# ZONA AMARILLA = ADU * DLT
+# TOY (Top of Yellow) = TOR + ZONA AMARILLA
+# ---------------------------------------------------------------------------
+SQL_ZONA_AMARILLA = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "ZONA AMARILLA" = ROUND("ADU" * "DLT", 2)
+"""
+
+SQL_TOY = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "TOY" = "TOR" + "ZONA AMARILLA"
+"""</code></pre>
+  </details>
+  <details class="code">
+    <summary>Ver código: zona verde y TOG <span class="src">master.py · líneas 175–193</span></summary>
+<pre data-start="175"><code># ---------------------------------------------------------------------------
+# ZONA VERDE = MAX( ADU * Ciclo de Pedido (param 3) ; ADU * DLT * LTF )
+#   ADU * DLT * LTF es la ZONA ROJA BASE. Sin MOQ por ahora.
+# ---------------------------------------------------------------------------
+SQL_ZONA_VERDE = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "ZONA VERDE" = GREATEST(
+	ROUND("ADU" * (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 3)::numeric, 2),
+	"ZONA ROJA BASE"
+)
+"""
+
+# ---------------------------------------------------------------------------
+# TOG (Top of Green) = TOY + ZONA VERDE
+# ---------------------------------------------------------------------------
+SQL_TOG = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "TOG" = "TOY" + "ZONA VERDE"
+"""</code></pre>
+  </details>
+
+  <h3>9.7 Posición de flujo y pedido</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Fórmula</th><th>Explicación</th></tr>
+    <tr><td><code>NFP</code></td><td><code>STOCK TOTAL − 0</code></td><td>Net Flow Position = disponible + suministro abierto − demanda calificada. La <strong>demanda calificada está en 0</strong> porque falta traer desde SAP los pedidos abiertos de clientes. Hoy <code>NFP = STOCK TOTAL</code>.</td></tr>
+    <tr><td><code>PEDIDO SUGERIDO</code></td><td>si <code>NFP ≤ TOY</code> → <code>GREATEST(TOG − NFP, 0)</code>; si no → <code>0</code></td><td>Solo se pide cuando la posición cae a la zona amarilla o roja, y se repone hasta el TOG.</td></tr>
+  </table></div>
+
+  <details class="code">
+    <summary>Ver código: NFP y pedido sugerido <span class="src">master.py · líneas 195–217</span></summary>
+<pre data-start="195"><code># ---------------------------------------------------------------------------
+# NFP (Net Flow Position) = Inventario disponible + Suministro abierto - Demanda calificada
+#   STOCK TOTAL ya es EN STOCK + tránsitos + pedidos + backorders (inventario + suministro abierto).
+#   Demanda calificada = 0 por ahora (pedidos abiertos de clientes: pendiente traerlos de SAP).
+#   Para cambiarla, reemplazar el "- 0" por la columna o consulta que corresponda.
+# ---------------------------------------------------------------------------
+SQL_NFP = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "NFP" = "STOCK TOTAL" - 0
+"""
+
+# ---------------------------------------------------------------------------
+# PEDIDO SUGERIDO: solo se pide si NFP &lt;= TOY (regla de disparo)
+#   PEDIDO SUGERIDO = TOG - NFP   si NFP &lt;= TOY
+#   PEDIDO SUGERIDO = 0           si NFP &gt;  TOY
+# ---------------------------------------------------------------------------
+SQL_PEDIDO_SUGERIDO = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "PEDIDO SUGERIDO" = CASE
+	WHEN "NFP" &lt;= "TOY" THEN GREATEST("TOG" - "NFP", 0)
+	ELSE 0
+END
+"""</code></pre>
+  </details>
+
+  <h4>Casos particulares</h4>
+  <div class="table-wrap"><table>
+    <tr><th>Situación</th><th>Resultado</th></tr>
+    <tr><td>ADU = 0 (sin venta)</td><td>Todas las zonas = 0 → TOG = 0 → pedido = 0.</td></tr>
+    <tr><td>DLT = 0 (sin historial de importación)</td><td>LTF = 0 → roja = 0, amarilla = 0, TOY = 0; verde = ADU × 30; TOG = ADU × 30. Solo se pide si <code>NFP ≤ 0</code>, y la cantidad es <code>ADU × 30 − NFP</code>.</td></tr>
+    <tr><td>NFP &gt; TOY</td><td>Pedido = 0 aunque la posición esté por debajo del TOG.</td></tr>
+  </table></div>
+</section>
+
+<!-- =====================================================================
+     10. EJEMPLO
+     ===================================================================== -->
+<section class="doc" id="s10">
+  <h2>10. Ejemplo completo paso a paso (MA_2000050)</h2>
+  <p class="section-lead">APLUS 185/60 R-14 A609 82H · MAXXIMUNDO · valores reales de la corrida del 27/09/2026.</p>
+
+  <div class="grid-2">
+    <div class="kpi"><div class="k">ADU</div><div class="v">7,93 u/día</div></div>
+    <div class="kpi"><div class="k">DLT</div><div class="v">65,70 días</div></div>
+    <div class="kpi"><div class="k">NFP</div><div class="v">712</div></div>
+    <div class="kpi"><div class="k">Pedido sugerido</div><div class="v">334,49</div></div>
+  </div>
+
+  <h3>10.1 ADU y VF (<code>ddmrp_ventas_picos</code>)</h3>
+  <p>Ningún mes se marcó como pico: el Z más alto fue 2,46 (agosto 2026), menor que 3,5. Serie de 12 meses completos:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Mes</th><th class="num">2025-09</th><th class="num">10</th><th class="num">11</th><th class="num">12</th><th class="num">2026-01</th><th class="num">02</th><th class="num">03</th><th class="num">04</th><th class="num">05</th><th class="num">06</th><th class="num">07</th><th class="num">08</th></tr>
+    <tr><td>Cantidad</td><td class="num">95</td><td class="num">54</td><td class="num">86</td><td class="num">255</td><td class="num">191</td><td class="num">419</td><td class="num">554</td><td class="num">205</td><td class="num">−14</td><td class="num">−9</td><td class="num">331</td><td class="num">688</td></tr>
+  </table></div>
+  <p>Mayo–agosto 2025 y septiembre 2026 están en la tabla pero no en la serie: los primeros quedan fuera de la ventana de 12 meses y septiembre 2026 es el mes en curso.</p>
+  <div class="formula">Suma      = 2.855            → promedio = 237,92 u/mes
+ADU       = 237,92 / 30      = 7,93 u/día
+CV        = desv. muestral / promedio = 0,94   → tramo 0,5 &lt; CV ≤ 1 → factor 0,4
+VF        = 0,94 × 0,4       = 0,376 → 0,38</div>
+
+  <h3>10.2 DLT (<code>ddmrp_proveedores</code>)</h3>
+  <p>Proveedor único <code>P4444444444444</code> con 20 PI. Por ejemplo, el PI <code>LABZ-MX240614</code>: producción 30 días + tránsito 34 días + 9 días fijos = <strong>73</strong>.</p>
+  <div class="formula">DLT = promedio del dlt de las 20 filas = 1.314 / 20 = 65,70
+60 &lt; 65,70 ≤ 100 → LTF = 0,4</div>
+
+  <h3>10.3 Demanda (<code>vw_ddmrp_ventas</code> + <code>ddmrp_inventario</code>)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Cálculo</th><th class="num">Valor</th></tr>
+    <tr><td>DEMANDA MES 1 AÑO</td><td>3.165 / 278 × 30</td><td class="num">341,55</td></tr>
+    <tr><td>DEMANDA MES 90D</td><td>1.423 / 63 × 30</td><td class="num">677,62</td></tr>
+    <tr><td>% VAR DEMANDA</td><td>(22,587 / 11,385 − 1) × 100</td><td class="num">98,40 %</td></tr>
+  </table></div>
+
+  <h3>10.4 Suministro</h3>
+  <div class="table-wrap"><table>
+    <tr><th class="num">EN STOCK</th><th class="num">TRANSITO 30D</th><th class="num">TRANSITO 60D</th><th class="num">PEDIDOS</th><th class="num">BACKORDERS</th><th class="num">STOCK TOTAL</th><th class="num">MES INV TOTAL</th></tr>
+    <tr><td class="num">2</td><td class="num">0</td><td class="num">310</td><td class="num">400</td><td class="num">0</td><td class="num"><strong>712</strong></td><td class="num">712 / 677,62 = <strong>1,05</strong></td></tr>
+  </table></div>
+
+  <h3>10.5 Buffer y pedido</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Campo</th><th>Cálculo</th><th class="num">Valor</th></tr>
+    <tr><td>ZONA ROJA BASE</td><td>7,93 × 65,70 × 0,4</td><td class="num">208,40</td></tr>
+    <tr><td>ZONA ROJA SEGURIDAD</td><td>208,40 × 0,38</td><td class="num">79,19</td></tr>
+    <tr><td>TOR</td><td>208,40 + 79,19</td><td class="num">287,59</td></tr>
+    <tr><td>ZONA AMARILLA</td><td>7,93 × 65,70</td><td class="num">521,00</td></tr>
+    <tr><td>TOY</td><td>287,59 + 521,00</td><td class="num">808,59</td></tr>
+    <tr><td>ZONA VERDE</td><td>máx(7,93 × 30 = 237,90 ; 208,40)</td><td class="num">237,90</td></tr>
+    <tr><td>TOG</td><td>808,59 + 237,90</td><td class="num">1.046,49</td></tr>
+    <tr><td>NFP</td><td>STOCK TOTAL − 0</td><td class="num">712,00</td></tr>
+    <tr><td><strong>PEDIDO SUGERIDO</strong></td><td>712 ≤ 808,59 → 1.046,49 − 712</td><td class="num"><strong>334,49</strong></td></tr>
+  </table></div>
+</section>
+
+<!-- =====================================================================
+     11. OBSERVACIONES
+     ===================================================================== -->
+<section class="doc" id="s11">
+  <h2>11. Observaciones y puntos a revisar</h2>
+  <p class="section-lead">Hallazgos del análisis del código. <strong>No se modificó nada</strong>; son preguntas para confirmar si el comportamiento es el esperado.</p>
+
+  <h3>Lógica de negocio</h3>
+  <ol class="obs">
+    <li><span class="obs-title">Tramos de LTF invertidos entre scripts.</span><span class="badge neg">negocio</span><br>En <code>ddmrp_proveedores.py</code> (columna <code>ltf</code>), DLT ≤ 60 usa 0.2 y DLT &gt; 100 usa 0.6. En <code>master.py</code> (columna <code>LTF</code>) es al revés: DLT ≤ 60 → 0.6 y DLT &gt; 100 → 0.2. Las zonas usan el valor de <code>master.py</code>, que coincide con el criterio estándar DDMRP (lead time largo → factor bajo). La columna <code>ltf</code> de proveedores además está en días (DLT × factor), no es el factor.</li>
+    <li><span class="obs-title">VF = CV × factor.</span><span class="badge neg">negocio</span><br>En DDMRP estándar el VF es el factor del tramo (0.2 / 0.4 / 0.6). Aquí se multiplica por el CV: un CV de 0.3 da VF 0.06 y un CV de 2 da VF 1.2, mientras que un SKU no medible recibe 0.40 sin multiplicar. Confirmar que es la regla deseada.</li>
+    <li><span class="obs-title">ADU y columnas de demanda usan ventas distintas.</span><span class="badge neg">negocio</span><br>El <code>ADU</code> sale de <code>ddmrp_ventas_picos</code> (todas las ventas, sin filtro de canal ni de clientes). <code>VTAS_1_AÑO</code>, <code>VENTA 90D</code> y <code>DEMANDA MES …</code> salen de <code>vw_ddmrp_ventas</code> (solo mayoreo/B2B y sin 4 clientes). El buffer se calcula con una demanda distinta a la que se muestra.</li>
+    <li><span class="obs-title">Los picos de lead time cuentan como 0 en el DLT.</span><span class="badge neg">negocio</span><br>En <code>ddmrp_proveedores</code> el pedido con pico no se excluye: queda con <code>leadtime_adu = 0</code>, su DLT baja a 9 + el otro tramo, y luego entra al promedio del master. Esto <strong>reduce</strong> el DLT del proveedor. Lo mismo pasa con las filas con <code>leadtime_promedio</code> NULL (PI sin match en <code>hec_pedidos</code>), que entran con producción = 0.</li>
+    <li><span class="obs-title">Filtro de fecha de proveedores.</span><span class="badge neg">negocio</span><br><code>hfr_fechadocumento &lt; CURRENT_DATE − 365</code> toma solo facturas <strong>de hace más de un año</strong>, no las del último año. Confirmar si es intencional (por ejemplo, para usar solo importaciones cerradas).</li>
+    <li><span class="obs-title">Ítems sin DLT.</span><span class="badge neg">negocio</span><br>En la corrida actual, de 12.419 ítems solo 1.277 tienen DLT &gt; 0 (5.550 tienen ADU &gt; 0). En el resto LTF = 0 y el buffer queda solo con la zona verde (ADU × 30); esos ítems solo sugieren pedido cuando NFP ≤ 0.</li>
+    <li><span class="obs-title">Demanda calificada = 0 en el NFP.</span><span class="badge neg">negocio</span><br>Pendiente; ya está comentado en el código.</li>
+    <li><span class="obs-title">Sin MOQ en la zona verde.</span><span class="badge neg">negocio</span><br>Pendiente; ya está comentado en el código.</li>
+    <li><span class="obs-title">Los tránsitos vencidos no se cuentan.</span><span class="badge neg">negocio</span><br><code>vw_ddmrp_trans_ped</code> solo toma tránsitos con entrega entre hoy y hoy + 60. Un tránsito abierto con fecha ya pasada (atrasado) o a más de 60 días no suma al NFP.</li>
+    <li><span class="obs-title"><code>VENTAS MES PICO</code> no es un mes.</span><span class="badge neg">negocio</span><br>Es <code>MAX(hev_cantidad)</code> de líneas de documento individuales. <code>supera_umbral</code> también compara esa línea contra el 40 % del año.</li>
+  </ol>
+
+  <h3>Detalles técnicos</h3>
+  <ol class="obs" start="11">
+    <li><span class="obs-title"><code>desviacion_estandar</code> guarda el CV,</span> no la desviación estándar; el nombre confunde.<span class="badge tec">técnico</span></li>
+    <li><span class="obs-title">Picos de ventas calculados sobre todo el histórico.</span><span class="badge tec">técnico</span><br>Se usa todo desde 2025-05-01 (fijo en el código), incluido el mes en curso incompleto, mientras que el ADU usa solo los últimos 12 meses completos. La mediana y la MAD no incluyen los meses sin venta (no tienen fila), pero la serie del ADU sí los cuenta como 0.</li>
+    <li><span class="obs-title"><code>FECHA_DESDE</code> fija (2025-05-01).</span><span class="badge tec">técnico</span><br>Con el tiempo, el histórico para picos crecerá sin límite; podría pasarse a parámetro o a ventana móvil.</li>
+    <li><span class="obs-title">Ventana de <code>ddmrp_inventario</code>.</span><span class="badge tec">técnico</span><br>Cuenta hasta 366 / 91 fechas porque el inicio y el fin son inclusivos. El comentario del código (<code>2026-09-22 -&gt; 2025-09-21</code>) no coincide con el cálculo real, que daría 2025-09-22.</li>
+    <li><span class="obs-title">Bodegas duplicadas.</span><span class="badge tec">técnico</span><br>Están en <code>ddmrp_bodega.py</code> (<code>EMPRESAS_CONFIG</code>) y en <code>ddmrp_inventario.py</code> (<code>BODEGAS_POR_EMPRESA</code>); si cambia una bodega hay que actualizar ambos.</li>
+    <li><span class="obs-title"><code>ddmrp_bodegas.sum</code> es <code>bigint</code>.</span><span class="badge tec">técnico</span><br>Si <code>OnHand</code> tuviera decimales, se redondean.</li>
+    <li><span class="obs-title"><code>FECHA_CORTE</code> solo afecta a inventario.</span><span class="badge tec">técnico</span><br>Las vistas y <code>ddmrp_ventas_picos</code> siempre usan la fecha de hoy; si se corre con fecha de corte, las ventanas no quedan alineadas.</li>
+    <li><span class="obs-title"><code>master.py</code> no filtra por estado.</span><span class="badge tec">técnico</span><br>Lee los parámetros 3–6 sin <code>ddmrp_estado = 1</code>; los demás scripts sí lo filtran.</li>
+    <li><span class="obs-title">Credenciales en texto plano</span> en <code>conection/config.py</code> (SQL Server con usuario <code>sa</code>, PostgreSQL y HANA). Conviene moverlas a variables de entorno o a un archivo fuera del control de versiones.<span class="badge tec">técnico</span></li>
+  </ol>
+</section>
+
+<footer>Documentación DDMRP · generada el 27/09/2026 a partir de master.py, tablas_resumen/*.py, conection/config.py y las vistas de core.</footer>
+</main>
+</div>
+
+<script>
+  /* ---------------------------------------------------------------------
+     Tema claro / oscuro (se recuerda en el navegador si está disponible)
+     --------------------------------------------------------------------- */
+  (function () {
+    var root = document.documentElement;
+    try {
+      var saved = localStorage.getItem("ddmrp-theme");
+      if (saved) root.setAttribute("data-theme", saved);
+    } catch (e) {}
+    document.getElementById("themeBtn").addEventListener("click", function () {
+      var current = root.getAttribute("data-theme") ||
+        (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      var next = current === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("ddmrp-theme", next); } catch (e) {}
+    });
+  })();
+
+  /* ---------------------------------------------------------------------
+     Resalta en el índice la sección que se está leyendo
+     --------------------------------------------------------------------- */
+  (function () {
+    var links = document.querySelectorAll("nav.sidebar a");
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          links.forEach(function (a) { a.classList.remove("active"); });
+          var link = byId[entry.target.id];
+          if (link) link.classList.add("active");
+        }
+      });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    document.querySelectorAll("section.doc").forEach(function (s) { observer.observe(s); });
+  })();
+
+  /* ---------------------------------------------------------------------
+     Bloques de código: numera las líneas con el número real del archivo
+     (atributo data-start del <pre>) y botones desplegar / contraer todo
+     --------------------------------------------------------------------- */
+  (function () {
+    document.querySelectorAll("details.code pre[data-start] code").forEach(function (code) {
+      var n = parseInt(code.parentNode.getAttribute("data-start"), 10);
+      code.innerHTML = code.innerHTML.replace(/\n$/, "").split("\n").map(function (line, i) {
+        return '<span class="ln">' + (n + i) + "</span>" + line;
+      }).join("\n");
+    });
+    function toggleAll(open) {
+      document.querySelectorAll("details.code").forEach(function (d) { d.open = open; });
+    }
+    document.getElementById("openAll").addEventListener("click", function () { toggleAll(true); });
+    document.getElementById("closeAll").addEventListener("click", function () { toggleAll(false); });
+  })();
+</script>
+</body>
+</html>
