@@ -46,6 +46,7 @@ SELECT
     b.dit_antiguedad AS "ANTIGUEDAD",
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
+    b.dit_codigoproveedor as "CODIGO_PROVEEDOR",
 	ROUND(a."365D"::numeric, 2) AS "VTAS_1_AÑO",
 	ROUND(a.max_cantidad_anio::numeric, 2) AS "VENTAS MES PICO",
 	a.supera_umbral AS "DIF PICO VTAS ULT AÑO VS # VTAS ULT AÑO",
