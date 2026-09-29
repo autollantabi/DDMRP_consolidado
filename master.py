@@ -173,6 +173,15 @@ FROM core.ddmrp_ventas_picos
 """
 
 # ---------------------------------------------------------------------------
+# VF por defecto: si el VF quedó en 0 (ítem sin ventas o CV = 0) se pone 0.20
+# ---------------------------------------------------------------------------
+SQL_VF_DEFAULT = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "VF" = 0.20
+WHERE "VF" = 0
+"""
+
+# ---------------------------------------------------------------------------
 # ADU (u/día) por ítem: ya viene calculado en ddmrp_ventas_picos (sin picos altos)
 # ---------------------------------------------------------------------------
 SQL_ADU = """
@@ -359,6 +368,9 @@ def cargar_ddmrp():
                     WHERE d."EMPRESA" = x.hev_empresa AND d."CODIGO_ITEM" = x.hev_codigoitem
                 """)
                 log.info("VF actualizado en %s ítems", cur.rowcount)
+                # VF por defecto (0.20) donde quedó en 0
+                cur.execute(SQL_VF_DEFAULT)
+                log.info("VF por defecto (0.20) en %s ítems", cur.rowcount)
                 # pega el ADU por empresa + código de ítem
                 cur.execute(f"""
                     UPDATE {PG_SCHEMA}.{PG_TABLA} d
