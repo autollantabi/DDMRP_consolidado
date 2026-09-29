@@ -34,6 +34,7 @@ SQL_DDMRP = """
 SELECT
 	b.dit_empresa AS "EMPRESA",
 	b.dit_codigo AS "CODIGO_ITEM",
+    b.dit_codigoproveedor as "CODIGO_PROVEEDOR",
 	b.dit_nombre AS "DESCRIPCION",
 	b.dit_grupo AS "GRUPO",
     b.dit_propiedad AS "PROPIEDAD",
@@ -46,7 +47,6 @@ SELECT
     b.dit_antiguedad AS "ANTIGUEDAD",
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
-    b.dit_codigoproveedor as "CODIGO_PROVEEDOR",
 	ROUND(a."365D"::numeric, 2) AS "VTAS_1_AÑO",
 	ROUND(a.max_cantidad_anio::numeric, 2) AS "VENTAS MES PICO",
 	a.supera_umbral AS "DIF PICO VTAS ULT AÑO VS # VTAS ULT AÑO",
@@ -301,6 +301,33 @@ SET "NUEVO TAMAÑO PEDIDO" = CASE
 END
 """
 
+# ---------------------------------------------------------------------------
+# COSTOS Y PRECIO del ítem (dim_item), redondeados a 2 decimales
+# ---------------------------------------------------------------------------
+SQL_COSTOS = """
+SELECT
+	dit_empresa,
+	dit_codigo,
+	ROUND(dit_ultimofob, 2)      AS ultimo_fob,
+	ROUND(dit_costopromedio, 2)  AS costo_promedio,
+	ROUND(dit_ultimocosto, 2)    AS ultimo_costo,
+	ROUND(dit_listaprecios_a, 2) AS lista_precios_a
+FROM core.dim_item
+"""
+
+# ---------------------------------------------------------------------------
+# P. LISTA VS ULT. COSTO (margen sobre el precio de lista, en %):
+#   (LISTA PRECIOS A - ULTIMO COSTO) / LISTA PRECIOS A * 100
+#   - sin último costo se toma 0 (da 100 %)
+#   - precio de lista 0 o vacío: queda vacío (no se puede dividir)
+# ---------------------------------------------------------------------------
+SQL_PLISTA_VS_ULTCOSTO = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "P. LISTA VS ULT. COSTO" = ROUND(
+	("LISTA PRECIOS A" - COALESCE("ULTIMO COSTO", 0)) * 100 / NULLIF("LISTA PRECIOS A", 0)
+, 2)
+"""
+
 def cargar_ddmrp():
     """Crea core.ddmrp si no existe (con las columnas del SELECT), borra sus registros e inserta."""
     conn = psycopg2.connect(**POSTGRES)
@@ -341,6 +368,13 @@ def cargar_ddmrp():
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "PEDIDO SUGERIDO" numeric DEFAULT 0')
                 # nuevo tamaño de pedido se llena aparte (SQL_NUEVO_TAMANO_PEDIDO)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "NUEVO TAMAÑO PEDIDO" numeric DEFAULT 0')
+                # costos y precio se llenan aparte (SQL_COSTOS), con 2 decimales
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ULTIMO FOB" numeric(20,2) DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "COSTO PROMEDIO" numeric(20,2) DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ULTIMO COSTO" numeric(20,2) DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "LISTA PRECIOS A" numeric(20,2) DEFAULT 0')
+                # margen lista vs último costo se llena aparte (SQL_PLISTA_VS_ULTCOSTO)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "P. LISTA VS ULT. COSTO" numeric(20,2)')
                 cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
                 cur.execute(f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({nombres}) {SQL_DDMRP}")
                 filas = cur.rowcount
@@ -398,6 +432,19 @@ def cargar_ddmrp():
                 cur.execute(SQL_PEDIDO_SUGERIDO)
                 # nuevo tamaño de pedido (usa MES INV TOTAL y PEDIDO SUGERIDO)
                 cur.execute(SQL_NUEVO_TAMANO_PEDIDO)
+                # pega costos y precio por empresa + código de ítem
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
+                    SET "ULTIMO FOB"      = x.ultimo_fob,
+                        "COSTO PROMEDIO"  = x.costo_promedio,
+                        "ULTIMO COSTO"    = x.ultimo_costo,
+                        "LISTA PRECIOS A" = x.lista_precios_a
+                    FROM ({SQL_COSTOS}) x
+                    WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
+                """)
+                log.info("Costos y precio actualizados en %s ítems", cur.rowcount)
+                # margen lista vs último costo (usa LISTA PRECIOS A y ULTIMO COSTO)
+                cur.execute(SQL_PLISTA_VS_ULTCOSTO)
         log.info("Cargadas %s filas en %s.%s", filas, PG_SCHEMA, PG_TABLA)
     finally:
         conn.close()
