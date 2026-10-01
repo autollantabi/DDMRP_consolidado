@@ -35,6 +35,7 @@ LIMITE_VF_BAJO  = 0.5
 LIMITE_VF_MEDIO = 1
 
 MESES_VENTANA     = 12  # ADU y CV: últimos 12 meses completos (sin el mes en curso)
+MESES_VENTANA_90  = 3   # ADU_90: últimos 3 meses completos (~90 días, sin el mes en curso)
 MIN_MESES_LIMPIOS = 3   # con menos meses limpios el CV no se puede medir -> VF medio
 
 DECIMALES_Z = 2        # decimales con los que se redondea el Z modificado
@@ -169,8 +170,9 @@ def agregar_adu_vf(columnas, filas, factores_vf):
     i_pico = columnas.index("es_pico")
     i_z    = columnas.index("z_modificado")
 
-    mes_actual  = date.today().replace(day=1)          # mes en curso: no entra (incompleto)
-    ini_ventana = sumar_meses(mes_actual, -MESES_VENTANA)
+    mes_actual     = date.today().replace(day=1)       # mes en curso: no entra (incompleto)
+    ini_ventana    = sumar_meses(mes_actual, -MESES_VENTANA)
+    ini_ventana_90 = sumar_meses(mes_actual, -MESES_VENTANA_90)
 
     primer_mes = {}
     ventas = defaultdict(dict)                         # sku -> {mes: cantidad, o None si es pico alto}
@@ -180,18 +182,27 @@ def agregar_adu_vf(columnas, filas, factores_vf):
         pico_alto = f[i_pico] == "SI" and f[i_z] > 0
         ventas[sku][f[i_mes]] = None if pico_alto else f[i_cant]
 
-    calculos = {}
-    for sku, por_mes in ventas.items():
+    def serie_mensual(por_mes, desde):
+        """Ventas mes a mes desde 'desde' hasta el mes anterior al actual (sin venta = 0, sin picos altos)."""
         serie = []
-        mes = max(primer_mes[sku], ini_ventana)
+        mes = desde
         while mes < mes_actual:
             cantidad = por_mes.get(mes, 0)             # mes sin venta = 0
             if cantidad is not None:                   # None = pico alto, se quita
                 serie.append(cantidad)
             mes = sumar_meses(mes, 1)
+        return serie
+
+    calculos = {}
+    for sku, por_mes in ventas.items():
+        serie = serie_mensual(por_mes, max(primer_mes[sku], ini_ventana))
 
         promedio = mean(serie) if serie else 0
         adu = max(promedio / 30, 0)
+
+        # ADU_90: misma regla que el ADU, pero con los últimos 3 meses completos
+        serie_90 = serie_mensual(por_mes, max(primer_mes[sku], ini_ventana_90))
+        adu_90 = max(mean(serie_90) / 30, 0) if serie_90 else 0
         if len(serie) >= MIN_MESES_LIMPIOS and promedio > 0:
             # CV = desviación estándar / ADU (misma serie; la unidad se cancela)
             cv = stdev(serie) / promedio
@@ -204,9 +215,9 @@ def agregar_adu_vf(columnas, filas, factores_vf):
             vf = round(cv * factor, DECIMALES_DESV)    # VF = CV * factor del tramo
         else:
             cv, vf = 0, medio                          # CV no medible -> VF = 0.40
-        calculos[sku] = (round(cv, DECIMALES_DESV), vf, round(adu, 2))
+        calculos[sku] = (round(cv, DECIMALES_DESV), vf, round(adu, 2), round(adu_90, 2))
 
-    return (columnas + ["desviacion_estandar", "VF", "ADU"],
+    return (columnas + ["desviacion_estandar", "VF", "ADU", "ADU_90"],
             [f + calculos[(f[0], f[1])] for f in filas])
 
 
@@ -226,14 +237,15 @@ CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
     fecha_subida         date,
     desviacion_estandar  numeric,
     "VF"                 numeric,
-    "ADU"                numeric
+    "ADU"                numeric,
+    "ADU_90"             numeric
 )
 """
 
 # Si la tabla ya existía sin las columnas: CREATE TABLE IF NOT EXISTS no agrega columnas
 ALTER = (f"ALTER TABLE {PG_SCHEMA}.{PG_TABLA} "
          f'ADD COLUMN IF NOT EXISTS desviacion_estandar numeric, ADD COLUMN IF NOT EXISTS "VF" numeric, '
-         f'ADD COLUMN IF NOT EXISTS "ADU" numeric')
+         f'ADD COLUMN IF NOT EXISTS "ADU" numeric, ADD COLUMN IF NOT EXISTS "ADU_90" numeric')
 
 
 def cargar(columnas, filas):
