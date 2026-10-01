@@ -65,6 +65,10 @@ SELECT
 	ROUND(e."30D"::numeric, 2) AS "TRANSITO 30D",
 	ROUND(e."60D"::numeric, 2) AS "TRANSITO 60D",
 	ROUND(e.pedido::numeric, 2) AS "PEDIDOS",
+	ROUND(e."Pedidos30D"::numeric, 2) AS "Pedidos30D",
+	ROUND(e."Pedidos60D"::numeric, 2) AS "Pedidos60D",
+	ROUND(e."Pedidos90D"::numeric, 2) AS "Pedidos90D",
+	ROUND(e."Pedidos>90D"::numeric, 2) AS "Pedidos>90D",
 	ROUND(e.backorder::numeric, 2) AS "BACKORDERS",
 	0::numeric AS "MES INV TOTAL",       -- se llena con SQL_MES_INV_TOTAL
 	0::numeric AS "STOCK TOTAL",         -- se llena con SQL_STOCK_TOTAL
@@ -116,14 +120,19 @@ SET "% VAR DEMANDA" = ROUND(COALESCE(
 """
 
 # ---------------------------------------------------------------------------
-# MES INV TOTAL = STOCK TOTAL / DEMANDA MES 90D   (0 si no hay demanda)
+# MES INV TOTAL = STOCK TOTAL / DEMANDA MES 90D
 #   (usa la demanda 90D sin redondear: VENTA 90D / DIAS INV 90D * 30)
+#   - sin venta en 1 año NI en 90 días, y con stock -> 9999 (cobertura infinita: no hay con qué comparar)
+#   - en los demás casos sin demanda                -> 0
 # ---------------------------------------------------------------------------
 SQL_MES_INV_TOTAL = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "MES INV TOTAL" = ROUND(COALESCE(
-	"STOCK TOTAL" * NULLIF("DIAS INV 90D", 0) / NULLIF("VENTA 90D" * 30, 0)
-, 0), 2)
+SET "MES INV TOTAL" = CASE
+	WHEN COALESCE("VTAS_1_AÑO", 0) = 0 AND COALESCE("VENTA 90D", 0) = 0 AND "STOCK TOTAL" > 0 THEN 9999
+	ELSE ROUND(COALESCE(
+		"STOCK TOTAL" * NULLIF("DIAS INV 90D", 0) / NULLIF("VENTA 90D" * 30, 0)
+	, 0), 2)
+END
 """
 
 # ---------------------------------------------------------------------------
@@ -165,12 +174,28 @@ WHERE d."DLT" = 0 AND d."MARCA" = m."MARCA"
 """
 
 # ---------------------------------------------------------------------------
-# VF por ítem: ya viene calculado en ddmrp_ventas_picos (un solo VF por empresa + ítem).
-# Ítems sin venta quedan en 0.
+# VF por ítem: porcentaje según el tramo del CV (igual que el LTF con el DLT).
+#   El CV es la columna desviacion_estandar de ddmrp_ventas_picos (un solo CV por empresa + ítem).
+#   CV = 0            -> 0 (luego queda en 0.20 con SQL_VF_DEFAULT)
+#   CV <= 0.5         -> VF bajo  (param 7, 0.2)
+#   0.5 < CV <= 1     -> VF medio (param 8, 0.4)
+#   CV > 1            -> VF alto  (param 9, 0.6)
+#   En ddmrp_ventas_picos el VF se guarda calculado (CV * porcentaje); aquí solo el porcentaje.
 # ---------------------------------------------------------------------------
 SQL_VF = """
-SELECT DISTINCT hev_empresa, hev_codigoitem, "VF" AS vf
-FROM core.ddmrp_ventas_picos
+SELECT
+	hev_empresa,
+	hev_codigoitem,
+	CASE
+		WHEN cv = 0   THEN 0
+		WHEN cv <= 0.5 THEN (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 7)
+		WHEN cv <= 1   THEN (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 8)
+		ELSE                (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 9)
+	END AS vf
+FROM (
+	SELECT DISTINCT hev_empresa, hev_codigoitem, desviacion_estandar AS cv
+	FROM core.ddmrp_ventas_picos
+) x
 """
 
 # ---------------------------------------------------------------------------
@@ -187,6 +212,10 @@ WHERE "VF" = 0
 # ---------------------------------------------------------------------------
 SQL_ADU = """
 SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU" AS adu
+FROM core.ddmrp_ventas_picos
+"""
+SQL_ADU_90 = """
+SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU_90" AS adu_90
 FROM core.ddmrp_ventas_picos
 """
 
@@ -208,13 +237,22 @@ END
 """
 
 # ---------------------------------------------------------------------------
+# LTF por defecto: si el LTF quedó en 0 (ítem sin DLT) se pone 0.20
+# ---------------------------------------------------------------------------
+SQL_LTF_DEFAULT = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "LTF" = 0.20
+WHERE "LTF" = 0
+"""
+
+# ---------------------------------------------------------------------------
 # ZONA ROJA por ítem:
-#   ZONA ROJA BASE      = ADU * DLT * LTF
+#   ZONA ROJA BASE      = ADU_90 * DLT * LTF
 #   ZONA ROJA SEGURIDAD = ZONA ROJA BASE * VF
 # ---------------------------------------------------------------------------
 SQL_ZONA_ROJA_BASE = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "ZONA ROJA BASE" = ROUND("ADU" * "DLT" * "LTF", 2)
+SET "ZONA ROJA BASE" = ROUND("ADU_90" * "DLT" * "LTF", 2)
 """
 
 SQL_ZONA_ROJA_SEGURIDAD = f"""
@@ -231,12 +269,12 @@ SET "TOR" = "ZONA ROJA BASE" + "ZONA ROJA SEGURIDAD"
 """
 
 # ---------------------------------------------------------------------------
-# ZONA AMARILLA = ADU * DLT
+# ZONA AMARILLA = ADU_90 * DLT
 # TOY (Top of Yellow) = TOR + ZONA AMARILLA
 # ---------------------------------------------------------------------------
 SQL_ZONA_AMARILLA = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "ZONA AMARILLA" = ROUND("ADU" * "DLT", 2)
+SET "ZONA AMARILLA" = ROUND("ADU_90" * "DLT", 2)
 """
 
 SQL_TOY = f"""
@@ -245,13 +283,13 @@ SET "TOY" = "TOR" + "ZONA AMARILLA"
 """
 
 # ---------------------------------------------------------------------------
-# ZONA VERDE = MAX( ADU * Ciclo de Pedido (param 3) ; ADU * DLT * LTF )
-#   ADU * DLT * LTF es la ZONA ROJA BASE. Sin MOQ por ahora.
+# ZONA VERDE = MAX( ADU_90 * Ciclo de Pedido (param 3) ; ADU_90 * DLT * LTF )
+#   ADU_90 * DLT * LTF es la ZONA ROJA BASE. Sin MOQ por ahora.
 # ---------------------------------------------------------------------------
 SQL_ZONA_VERDE = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
 SET "ZONA VERDE" = GREATEST(
-	ROUND("ADU" * (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 3)::numeric, 2),
+	ROUND("ADU_90" * (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = 3)::numeric, 2),
 	"ZONA ROJA BASE"
 )
 """
@@ -352,6 +390,8 @@ def cargar_ddmrp():
                 nombres = ", ".join('"' + nombre + '"' for nombre, _ in columnas)
                 # ADU se llena aparte (SQL_ADU); ítems sin venta quedan en 0
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU" numeric DEFAULT 0')
+                # ADU_90 se llena aparte (SQL_ADU_90); ítems sin venta quedan en 0
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU_90" numeric DEFAULT 0')
                 # zona roja y TOR se llenan aparte (SQL_ZONA_ROJA_BASE, SQL_ZONA_ROJA_SEGURIDAD, SQL_TOR)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA BASE" numeric DEFAULT 0')
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA SEGURIDAD" numeric DEFAULT 0')
@@ -414,8 +454,19 @@ def cargar_ddmrp():
                     WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
                 """)
                 log.info("ADU actualizado en %s ítems", cur.rowcount)
+                # pega el ADU_90 por empresa + código de ítem
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
+                    SET "ADU_90" = a.adu_90
+                    FROM ({SQL_ADU_90}) a
+                    WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
+                """)
+                log.info("ADU_90 actualizado en %s ítems", cur.rowcount)
                 # LTF según el tramo del DLT de cada ítem
                 cur.execute(SQL_LTF)
+                # LTF por defecto (0.20) donde quedó en 0
+                cur.execute(SQL_LTF_DEFAULT)
+                log.info("LTF por defecto (0.20) en %s ítems", cur.rowcount)
                 # zona roja (con ADU, DLT, LTF y VF ya cargados) y luego el TOR
                 cur.execute(SQL_ZONA_ROJA_BASE)
                 cur.execute(SQL_ZONA_ROJA_SEGURIDAD)
