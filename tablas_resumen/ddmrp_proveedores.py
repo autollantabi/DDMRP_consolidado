@@ -18,36 +18,51 @@ PG_SCHEMA = "core"
 PG_TABLA  = "ddmrp_proveedores"
 
 # Filtros opcionales: pon None para traer todas las empresas / todos los proveedores
-FILTRO_EMPRESA   = None #"AUTOLLANTA"
-FILTRO_PROVEEDOR = None #"P5555555555001"
+FILTRO_EMPRESA   = None  # "AUTOLLANTA"
+FILTRO_PROVEEDOR = None  # "P5555555555001"
 
 # Parámetros en core.ddmrp_parametros (ddmrp_valor_num, solo ddmrp_estado = 1)
-ID_UMBRAL_PICO = 13    # Umbral: es_pico = "SI" cuando |Z modificado| > umbral
-ID_CONSTANTE_Z = 14    # Z modificado = constante * (leadtime - mediana) / MADX
-ID_DIAS_DATOS  = 15    # Días toma datos: hfr_fechadocumento < current_date - días
-ID_DIAS_CONFIRMACION = 10   # Dias Confirmacion Pedido                     (DLT)
-ID_DIAS_DESADUANIZ   = 11   # Dias Desaduanizacion y Recepcion Bodega      (DLT)
-ID_DIAS_BOOKING      = 12   # Dias Cordinacion Booking                     (DLT)
-ID_LTF_BAJO  = 4       # LTF bajo  (0.2): DLT <= LIMITE_LTF_BAJO
-ID_LTF_MEDIO = 5       # LTF medio (0.4): LIMITE_LTF_BAJO < DLT <= LIMITE_LTF_MEDIO
-ID_LTF_ALTO  = 6       # LTF alto  (0.6): DLT > LIMITE_LTF_MEDIO
+ID_LTF_BAJO          = 4    # LTF bajo  (0.2): DLT <= LIMITE_LTF_BAJO
+ID_LTF_MEDIO         = 5    # LTF medio (0.4): LIMITE_LTF_BAJO < DLT <= LIMITE_LTF_MEDIO
+ID_LTF_ALTO          = 6    # LTF alto  (0.6): DLT > LIMITE_LTF_MEDIO
+ID_DIAS_CONFIRMACION = 10   # Dias Confirmacion Pedido                 (DLT)
+ID_DIAS_DESADUANIZ   = 11   # Dias Desaduanizacion y Recepcion Bodega  (DLT)
+ID_DIAS_BOOKING      = 12   # Dias Cordinacion Booking                 (DLT)
+ID_UMBRAL_PICO       = 13   # Umbral: es_pico = "SI" cuando |Z modificado| > umbral
+ID_CONSTANTE_Z       = 14   # Z modificado = constante * (leadtime - mediana) / MADX
+ID_DIAS_DATOS        = 15   # Días toma datos: hfr_fechadocumento < current_date - días
 
-LIMITE_LTF_BAJO  = 60  # días
-LIMITE_LTF_MEDIO = 100 # días
+# Tramos del DLT para el LTF (días)
+LIMITE_LTF_BAJO  = 60
+LIMITE_LTF_MEDIO = 100
 
-DECIMALES_Z = 2        # decimales con los que se redondea el Z modificado
+DECIMALES_Z = 2             # decimales con los que se redondea el Z modificado
+
+# Lead times que se calculan: columna origen -> sufijo de sus columnas calculadas
+#   leadtime_promedio_etd_eta: tránsito puerto -> GYE (ETA real - ETD real)
+#   leadtime_promedio:         producción (fecha necesaria pedido - fecha factura reserva)
+COLUMNAS_LEADTIME = {
+    "leadtime_promedio_etd_eta": "_etd_eta",
+    "leadtime_promedio":         "",
+}
+
+# Proveedores que MAXXIMUNDO importa para IKONIX: al final de la carga sus filas
+# pasan de empresa MAXXIMUNDO a IKONIX
+EMPRESA_IMPORTADORA  = "MAXXIMUNDO"
+EMPRESA_DESTINO      = "IKONIX"
+PROVEEDORES_DESTINO  = ["P2222222222002", "P9999999999994", "P9999999999993"]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 log = logging.getLogger("proveedores")
 
 
 # ---------------------------------------------------------------------------
-# PARÁMETROS (PostgreSQL)
+# 1. PARÁMETROS (PostgreSQL)
 # ---------------------------------------------------------------------------
 def leer_parametros():
-    ids = (ID_UMBRAL_PICO, ID_CONSTANTE_Z, ID_DIAS_DATOS,
+    ids = (ID_LTF_BAJO, ID_LTF_MEDIO, ID_LTF_ALTO,
            ID_DIAS_CONFIRMACION, ID_DIAS_DESADUANIZ, ID_DIAS_BOOKING,
-           ID_LTF_BAJO, ID_LTF_MEDIO, ID_LTF_ALTO)
+           ID_UMBRAL_PICO, ID_CONSTANTE_Z, ID_DIAS_DATOS)
     with psycopg2.connect(**POSTGRES) as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -67,6 +82,7 @@ def leer_parametros():
              valores[ID_DIAS_CONFIRMACION], valores[ID_DIAS_BOOKING], valores[ID_DIAS_DESADUANIZ])
     log.info("Parámetros LTF: bajo = %s, medio = %s, alto = %s",
              valores[ID_LTF_BAJO], valores[ID_LTF_MEDIO], valores[ID_LTF_ALTO])
+
     # días fijos que se suman al DLT
     dias_fijos_dlt = (valores[ID_DIAS_CONFIRMACION] + valores[ID_DIAS_BOOKING]
                       + valores[ID_DIAS_DESADUANIZ])
@@ -76,7 +92,7 @@ def leer_parametros():
 
 
 # ---------------------------------------------------------------------------
-# EXTRACCIÓN (PostgreSQL)
+# 2. EXTRACCIÓN (PostgreSQL): una fila por empresa + proveedor + PI + forwarder
 # ---------------------------------------------------------------------------
 def extraer(dias_datos):
     sql = """
@@ -129,20 +145,14 @@ def extraer(dias_datos):
 
 
 # ---------------------------------------------------------------------------
-# CÁLCULO por empresa + proveedor (cada fila es un pedido), para cada lead time:
-#   desv_mediana = |leadtime - mediana|              (=ABS(C36-MEDX))
+# 3. PICOS DE LEAD TIME por empresa + proveedor (cada fila es un pedido), para cada lead time:
+#   desv_mediana = |leadtime - mediana|                       (=ABS(C36-MEDX))
 #   z_modificado = constante_z * (leadtime - mediana) / MADX  (=0,6745*(C36-MEDX)/MADX)
-#   es_pico      = "SI" si |z_modificado| > umbral_pico   (=SI(ABS(E36)>ZTHR;"SI";"NO"))
-#   leadtime_adu = leadtime si no es pico, si no 0        (=SI(F36="NO";C36;"0"))
+#   es_pico      = "SI" si |z_modificado| > umbral_pico       (=SI(ABS(E36)>ZTHR;"SI";"NO"))
+#   leadtime_adu = leadtime si no es pico, si no 0            (=SI(F36="NO";C36;"0"))
 # Las filas con leadtime NULL (pedido sin match en hec_pedidos) se muestran sin cálculo.
 # Columnas nuevas: las de leadtime_promedio sin sufijo, las de ETD-ETA con "_etd_eta".
 # ---------------------------------------------------------------------------
-COLUMNAS_LEADTIME = {
-    "leadtime_promedio_etd_eta": "_etd_eta",
-    "leadtime_promedio":         "",
-}
-
-
 def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
     for col, sufijo in COLUMNAS_LEADTIME.items():
         columnas, filas = agregar_calculo(columnas, filas, col, sufijo, umbral_pico, constante_z)
@@ -181,9 +191,9 @@ def agregar_calculo(columnas, filas, col, sufijo, umbral_pico, constante_z):
 
 
 # ---------------------------------------------------------------------------
-# DLT = días confirmación pedido + lead time producción (leadtime_adu)
-#     + días coordinación booking + lead time puerto -> GYE (leadtime_adu_etd_eta)
-#     + días desaduanización y recepción en bodega
+# 4. DLT = días confirmación pedido + lead time producción (leadtime_adu)
+#        + días coordinación booking + lead time puerto -> GYE (leadtime_adu_etd_eta)
+#        + días desaduanización y recepción en bodega
 # Un lead time vacío (NULL) se cuenta como 0.
 # ---------------------------------------------------------------------------
 def agregar_dlt(columnas, filas, dias_fijos_dlt):
@@ -194,7 +204,7 @@ def agregar_dlt(columnas, filas, dias_fijos_dlt):
 
 
 # ---------------------------------------------------------------------------
-# LTF por fila (pedido) según su DLT:
+# 5. LTF por fila (pedido) según su DLT:
 #   DLT <= 60        -> DLT * LTF bajo  (0.2)
 #   60 < DLT <= 100  -> DLT * LTF medio (0.4)
 #   DLT > 100        -> DLT * LTF alto  (0.6)
@@ -216,7 +226,8 @@ def agregar_ltf(columnas, filas, factores_ltf):
 
 
 # ---------------------------------------------------------------------------
-# CARGA (PostgreSQL): crea la tabla si no existe, borra sus registros e inserta
+# 6. CARGA (PostgreSQL): crea la tabla si no existe, borra sus registros, inserta
+#    y pasa a IKONIX los proveedores que importa MAXXIMUNDO para IKONIX
 # ---------------------------------------------------------------------------
 COLUMNAS_TABLA = """
     empresa                    varchar,
@@ -245,6 +256,12 @@ CREATE = f"CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} ({COLUMNAS_TABLA})"
 ALTER = f"ALTER TABLE {PG_SCHEMA}.{PG_TABLA} " + ", ".join(
     f"ADD COLUMN IF NOT EXISTS {c.strip()}" for c in COLUMNAS_TABLA.strip().split(",\n"))
 
+UPDATE_IKONIX = f"""
+    UPDATE {PG_SCHEMA}.{PG_TABLA}
+    SET empresa = %s
+    WHERE empresa = %s AND cod_proveedor = ANY(%s)
+"""
+
 
 def cargar(columnas, filas):
     insert = f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({', '.join(columnas)}) VALUES %s"
@@ -257,11 +274,18 @@ def cargar(columnas, filas):
                 cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
                 if filas:
                     execute_values(cur, insert, filas, page_size=5000)
+                # proveedores que importa MAXXIMUNDO para IKONIX: se pasan a IKONIX (misma transacción)
+                cur.execute(UPDATE_IKONIX, (EMPRESA_DESTINO, EMPRESA_IMPORTADORA, PROVEEDORES_DESTINO))
+                log.info("Pasadas a %s %s filas de proveedores de %s",
+                         EMPRESA_DESTINO, cur.rowcount, EMPRESA_IMPORTADORA)
         log.info("Cargadas %s filas en %s.%s", len(filas), PG_SCHEMA, PG_TABLA)
     finally:
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# EJECUCIÓN: parámetros -> extracción -> picos -> DLT -> LTF -> carga
+# ---------------------------------------------------------------------------
 def ejecutar():
     umbral_pico, constante_z, dias_datos, dias_fijos_dlt, factores_ltf = leer_parametros()
     columnas, filas = agregar_desv_mediana(*extraer(dias_datos), umbral_pico, constante_z)
@@ -269,7 +293,6 @@ def ejecutar():
     cargar(*agregar_ltf(columnas, filas, factores_ltf))
 
 
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
         ejecutar()
