@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "tablas_resumen"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "conection"))
 import ddmrp_bodega
 import ddmrp_inventario
+import ddmrp_medidas_top
 import ddmrp_proveedores
 import ddmrp_ventas_picos
 from config import POSTGRES
@@ -18,6 +19,7 @@ PROCESOS = [
     ("ddmrp_inventario", ddmrp_inventario.ejecutar),
     ("ddmrp_ventas_picos", ddmrp_ventas_picos.ejecutar),
     ("ddmrp_proveedores", ddmrp_proveedores.ejecutar),
+    ("ddmrp_medidas_top", ddmrp_medidas_top.ejecutar),
 ]
 
 PG_SCHEMA = "core"
@@ -45,6 +47,7 @@ SELECT
 	b.dit_codigobarras AS "BARRAS",
 	b.dit_disenio AS "DISEÑO",
     b.dit_antiguedad AS "ANTIGUEDAD",
+	'NO'::text AS "TOP",                 -- se llena con SQL_TOP
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
 	ROUND(a."365D"::numeric, 2) AS "VTAS_1_AÑO",
@@ -82,6 +85,14 @@ LEFT JOIN core.ddmrp_bodegas d ON b.dit_empresa = d.empresa AND b.dit_codigo = d
 LEFT JOIN core.vw_ddmrp_trans_ped e ON b.dit_empresa = e.dit_empresa AND b.dit_codigo = e.dit_codigo
 """
 
+
+# ---------------------------------------------------------------------------
+# TOP por ítem: 'SI' si la descripción tiene una medida top (ddmrp_medidas_top), si no 'NO'
+# ---------------------------------------------------------------------------
+SQL_TOP = """
+SELECT dit_empresa, dit_codigo, top
+FROM core.ddmrp_medidas_top
+"""
 
 # ---------------------------------------------------------------------------
 # STOCK TOTAL = EN STOCK + TRANSITO 30D + TRANSITO 60D + PEDIDOS + BACKORDERS
@@ -418,6 +429,14 @@ def cargar_ddmrp():
                 cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
                 cur.execute(f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({nombres}) {SQL_DDMRP}")
                 filas = cur.rowcount
+                # pega el TOP por empresa + código de ítem
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
+                    SET "TOP" = x.top
+                    FROM ({SQL_TOP}) x
+                    WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
+                """)
+                log.info("TOP actualizado en %s ítems", cur.rowcount)
                 # stock total, demandas, variación y meses de inventario (usan columnas ya cargadas)
                 cur.execute(SQL_STOCK_TOTAL)
                 cur.execute(SQL_DEMANDA_MES_1ANIO)
