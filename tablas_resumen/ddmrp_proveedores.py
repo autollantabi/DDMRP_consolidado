@@ -1,8 +1,9 @@
 import logging
 import sys
 from collections import defaultdict
+from datetime import timedelta
 from pathlib import Path
-from statistics import median
+from statistics import mean, median, stdev
 
 import psycopg2
 from psycopg2.extras import execute_values
@@ -15,54 +16,48 @@ from config import POSTGRES
 # CONFIGURACIÓN
 # ---------------------------------------------------------------------------
 PG_SCHEMA = "core"
-PG_TABLA  = "ddmrp_proveedores"
+PG_TABLA  = "ddmrp_ventas_picos"
 
-# Filtros opcionales: pon None para traer todas las empresas / todos los proveedores
-FILTRO_EMPRESA   = None  # "AUTOLLANTA"
-FILTRO_PROVEEDOR = None  # "P5555555555001"
+# Filtros opcionales: pon None para traer todas las empresas / todos los ítems
+FILTRO_EMPRESA = None #"STOX"
+FILTRO_ITEM    = None  #"ST_2001143"
+
+# Ventas que cuentan para el ADU: los mismos filtros que la vista core.vw_ddmrp_ventas
+#   - sin PPTO
+#   - solo vendedores (dim_vendedores.dve_categoria) de mayoreo y B2B
+#   - sin los clientes relacionados (hev_cuentasocio termina en estos RUC)
+CATEGORIAS_VENDEDOR = ["EQUIPO DE MAYOREO", "EQUIPO B2B"]
+CLIENTES_EXCLUIDOS  = ["0190085929001", "0195092982001", "0190350533001", "0195116598001"]
 
 # Parámetros en core.ddmrp_parametros (ddmrp_valor_num, solo ddmrp_estado = 1)
-ID_LTF_BAJO          = 4    # LTF bajo  (0.2): DLT <= LIMITE_LTF_BAJO
-ID_LTF_MEDIO         = 5    # LTF medio (0.4): LIMITE_LTF_BAJO < DLT <= LIMITE_LTF_MEDIO
-ID_LTF_ALTO          = 6    # LTF alto  (0.6): DLT > LIMITE_LTF_MEDIO
-ID_DIAS_CONFIRMACION = 10   # Dias Confirmacion Pedido                 (DLT)
-ID_DIAS_DESADUANIZ   = 11   # Dias Desaduanizacion y Recepcion Bodega  (DLT)
-ID_DIAS_BOOKING      = 12   # Dias Cordinacion Booking                 (DLT)
-ID_UMBRAL_PICO       = 13   # Umbral: es_pico = "SI" cuando |Z modificado| > umbral
-ID_CONSTANTE_Z       = 14   # Z modificado = constante * (leadtime - mediana) / MADX
-ID_DIAS_DATOS        = 15   # Días toma datos: hfr_fechadocumento < current_date - días
+ID_DIAS_ADU    = 1     # Ventas 1 anio (365): días hacia atrás desde hoy para ADU, picos y CV
+ID_VF_BAJO     = 7     # VF bajo  (0.2): CV <= LIMITE_VF_BAJO
+ID_VF_MEDIO    = 8     # VF medio (0.4): LIMITE_VF_BAJO < CV <= LIMITE_VF_MEDIO, y SKUs no medibles
+ID_VF_ALTO     = 9     # VF alto  (0.6): CV > LIMITE_VF_MEDIO
+ID_UMBRAL_PICO = 13    # Umbral: es_pico = "SI" cuando |Z modificado| > umbral
+ID_CONSTANTE_Z = 14    # Z modificado = constante * (cantidad - mediana) / MADX
 
-# Tramos del DLT para el LTF (días)
-LIMITE_LTF_BAJO  = 60
-LIMITE_LTF_MEDIO = 100
+LIMITE_VF_BAJO  = 0.5
+LIMITE_VF_MEDIO = 1
 
-DECIMALES_Z = 2             # decimales con los que se redondea el Z modificado
+# La ventana de días se parte en tramos de ~30 días contados hacia atrás desde hoy
+# (365 / 12 = 30,42 -> tramos de 30 y 31 días que cubren los 365 días exactos).
+# Cada tramo hace de "mes" para detectar picos y medir el CV.
+N_TRAMOS           = 12
+MIN_TRAMOS_LIMPIOS = 3  # con menos tramos limpios el CV no se puede medir -> VF medio
 
-# Lead times que se calculan: columna origen -> sufijo de sus columnas calculadas
-#   leadtime_promedio_etd_eta: tránsito puerto -> GYE (ETA real - ETD real)
-#   leadtime_promedio:         producción (fecha necesaria pedido - fecha factura reserva)
-COLUMNAS_LEADTIME = {
-    "leadtime_promedio_etd_eta": "_etd_eta",
-    "leadtime_promedio":         "",
-}
-
-# Proveedores que MAXXIMUNDO importa para IKONIX: al final de la carga sus filas
-# pasan de empresa MAXXIMUNDO a IKONIX
-EMPRESA_IMPORTADORA  = "MAXXIMUNDO"
-EMPRESA_DESTINO      = "IKONIX"
-PROVEEDORES_DESTINO  = ["P2222222222002", "P9999999999994", "P9999999999993"]
+DECIMALES_Z = 2        # decimales con los que se redondea el Z modificado
+DECIMALES_DESV = 2     # decimales con los que se redondea desviacion_estandar
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-log = logging.getLogger("proveedores")
+log = logging.getLogger("vts_mensual_sku")
 
 
 # ---------------------------------------------------------------------------
-# 1. PARÁMETROS (PostgreSQL)
+# PARÁMETROS (PostgreSQL)
 # ---------------------------------------------------------------------------
 def leer_parametros():
-    ids = (ID_LTF_BAJO, ID_LTF_MEDIO, ID_LTF_ALTO,
-           ID_DIAS_CONFIRMACION, ID_DIAS_DESADUANIZ, ID_DIAS_BOOKING,
-           ID_UMBRAL_PICO, ID_CONSTANTE_Z, ID_DIAS_DATOS)
+    ids = (ID_DIAS_ADU, ID_VF_BAJO, ID_VF_MEDIO, ID_VF_ALTO, ID_UMBRAL_PICO, ID_CONSTANTE_Z)
     with psycopg2.connect(**POSTGRES) as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -76,195 +71,217 @@ def leer_parametros():
     if faltan:
         raise ValueError(f"Faltan parámetros activos en core.ddmrp_parametros: ddmrp_id {faltan}")
 
-    log.info("Parámetros: umbral = %s, constante Z = %s, días toma datos = %s, "
-             "días confirmación = %s, días booking = %s, días desaduanización = %s",
-             valores[ID_UMBRAL_PICO], valores[ID_CONSTANTE_Z], valores[ID_DIAS_DATOS],
-             valores[ID_DIAS_CONFIRMACION], valores[ID_DIAS_BOOKING], valores[ID_DIAS_DESADUANIZ])
-    log.info("Parámetros LTF: bajo = %s, medio = %s, alto = %s",
-             valores[ID_LTF_BAJO], valores[ID_LTF_MEDIO], valores[ID_LTF_ALTO])
-
-    # días fijos que se suman al DLT
-    dias_fijos_dlt = (valores[ID_DIAS_CONFIRMACION] + valores[ID_DIAS_BOOKING]
-                      + valores[ID_DIAS_DESADUANIZ])
-    factores_ltf = (valores[ID_LTF_BAJO], valores[ID_LTF_MEDIO], valores[ID_LTF_ALTO])
-    return (valores[ID_UMBRAL_PICO], valores[ID_CONSTANTE_Z], int(valores[ID_DIAS_DATOS]),
-            dias_fijos_dlt, factores_ltf)
+    log.info("Parámetros: días ADU = %s, umbral = %s, constante Z = %s, VF bajo = %s, VF medio = %s, VF alto = %s",
+             valores[ID_DIAS_ADU], valores[ID_UMBRAL_PICO], valores[ID_CONSTANTE_Z],
+             valores[ID_VF_BAJO], valores[ID_VF_MEDIO], valores[ID_VF_ALTO])
+    factores_vf = (valores[ID_VF_BAJO], valores[ID_VF_MEDIO], valores[ID_VF_ALTO])
+    return int(valores[ID_DIAS_ADU]), valores[ID_UMBRAL_PICO], valores[ID_CONSTANTE_Z], factores_vf
 
 
 # ---------------------------------------------------------------------------
-# 2. EXTRACCIÓN (PostgreSQL): una fila por empresa + proveedor + PI + forwarder
+# TRAMOS: la ventana de 'dias' días (hoy incluido) partida en N_TRAMOS tramos.
+#   días atrás d (0 = hoy, dias - 1 = el más antiguo) -> tramo = d * N_TRAMOS // dias
+#   tramo 0 = el más reciente (termina hoy), tramo N_TRAMOS - 1 = el más antiguo
+# Devuelve {tramo: (fecha inicio, número de días)}
 # ---------------------------------------------------------------------------
-def extraer(dias_datos):
+def armar_tramos(hoy, dias):
+    tramos = {}
+    for d in range(dias):
+        t = d * N_TRAMOS // dias
+        _, n = tramos.get(t, (None, 0))
+        tramos[t] = (hoy - timedelta(days=d), n + 1)     # el último d del tramo es su fecha inicio
+    return tramos
+
+
+# ---------------------------------------------------------------------------
+# EXTRACCIÓN (PostgreSQL): venta por empresa + ítem + tramo de los últimos 'dias' días
+# Mismos filtros que core.vw_ddmrp_ventas: sin PPTO, solo mayoreo / B2B, sin clientes
+# relacionados (un vendedor que no está en dim_vendedores queda fuera, igual que en la vista).
+# La columna 'mes' guarda la fecha de inicio del tramo.
+# ---------------------------------------------------------------------------
+def extraer(dias):
     sql = """
         SELECT
-            hfr.hfr_empresa           AS empresa,
-            imp.heim_codigoproveedor  AS cod_proveedor,
-            imp.heim_proveedor        AS nombre_proveedor,
-            ped.hpe_numeropi,
-            imp.heim_agente_forwarder,
-            ROUND(AVG(imp.heim_eta_real::date - imp.heim_etd_real::date), 0)           AS leadtime_promedio_etd_eta,
-            ROUND(AVG(ped.hpe_fechanecesaria::date - hfr.hfr_fechadocumento::date), 0) AS leadtime_promedio,
-            COUNT(*)                  AS total_registros
-        FROM core.hec_facturas_reserva hfr
-        INNER JOIN core.hec_importaciones imp
-            ON hfr.hfr_numeropi = imp.heim_num_pi
-        LEFT JOIN core.hec_pedidos ped
-            ON hfr.hfr_numeropi = ped.hpe_numeropi
-        WHERE hfr.hfr_fechadocumento < CURRENT_DATE - make_interval(days => %s)
+            hv.hev_empresa,
+            hv.hev_codigoitem,
+            (current_date - hv.hev_fechadocumento::date) * %(n)s / %(dias)s AS tramo,
+            ROUND(SUM(hv.hev_cantidad))::integer                            AS cantidad,
+            current_date                                                    AS fecha_subida
+        FROM core.hec_ventas hv
+        JOIN core.dim_vendedores dve
+            ON dve.dve_codigo = hv.hev_vendedor_asignado
+        WHERE hv.hev_fechadocumento::date >  current_date - %(dias)s
+          AND hv.hev_fechadocumento::date <= current_date
+          AND hv.hev_tipodocumento <> 'PPTO'
+          AND dve.dve_categoria = ANY(%(categorias)s)
+          AND hv.hev_cuentasocio NOT LIKE ALL(%(clientes)s)
     """
-    params = [dias_datos]
+    params = {"n": N_TRAMOS, "dias": dias,
+              "categorias": CATEGORIAS_VENDEDOR,
+              "clientes": ["%" + ruc for ruc in CLIENTES_EXCLUIDOS]}   # termina en el RUC
 
     if FILTRO_EMPRESA:
-        sql += " AND hfr.hfr_empresa = %s"
-        params.append(FILTRO_EMPRESA)
-    if FILTRO_PROVEEDOR:
-        sql += " AND imp.heim_codigoproveedor = %s"
-        params.append(FILTRO_PROVEEDOR)
+        sql += " AND hv.hev_empresa = %(empresa)s"
+        params["empresa"] = FILTRO_EMPRESA
+    if FILTRO_ITEM:
+        sql += " AND hv.hev_codigoitem = %(item)s"
+        params["item"] = FILTRO_ITEM
 
     sql += """
-        GROUP BY
-            hfr.hfr_empresa,
-            imp.heim_codigoproveedor,
-            imp.heim_proveedor,
-            ped.hpe_numeropi,
-            imp.heim_agente_forwarder
-        ORDER BY hfr.hfr_empresa, imp.heim_codigoproveedor, ped.hpe_numeropi;
+        GROUP BY hv.hev_empresa, hv.hev_codigoitem, 3
+        ORDER BY hv.hev_empresa, hv.hev_codigoitem, 3 DESC;
     """
 
     with psycopg2.connect(**POSTGRES) as conn:
         cur = conn.cursor()
+        cur.execute("SELECT current_date")
+        hoy = cur.fetchone()[0]
         cur.execute(sql, params)
-        columnas = [d[0] for d in cur.description]
-        # ROUND(..., 0) llega como Decimal: se pasa a int para operar con la constante Z (float)
-        i_lts = [columnas.index(c) for c in COLUMNAS_LEADTIME]
-        filas = [tuple(int(v) if i in i_lts and v is not None else v for i, v in enumerate(f))
-                 for f in cur.fetchall()]
+        datos = cur.fetchall()
 
-    log.info("Extraídas %s filas (hfr_fechadocumento < hoy - %s días)", len(filas), dias_datos)
-    return columnas, filas
+    tramos = armar_tramos(hoy, dias)
+    # tramo -> fecha de inicio del tramo (columna 'mes')
+    columnas = ["hev_empresa", "hev_codigoitem", "mes", "cantidad", "fecha_subida"]
+    filas = [(emp, item, tramos[t][0], cant, fsub) for emp, item, t, cant, fsub in datos]
+
+    log.info("Extraídas %s filas de core.hec_ventas (últimos %s días hasta %s, %s tramos)",
+             len(filas), dias, hoy, N_TRAMOS)
+    return columnas, filas, tramos
 
 
 # ---------------------------------------------------------------------------
-# 3. PICOS DE LEAD TIME por empresa + proveedor (cada fila es un pedido), para cada lead time:
-#   desv_mediana = |leadtime - mediana|                       (=ABS(C36-MEDX))
-#   z_modificado = constante_z * (leadtime - mediana) / MADX  (=0,6745*(C36-MEDX)/MADX)
-#   es_pico      = "SI" si |z_modificado| > umbral_pico       (=SI(ABS(E36)>ZTHR;"SI";"NO"))
-#   leadtime_adu = leadtime si no es pico, si no 0            (=SI(F36="NO";C36;"0"))
-# Las filas con leadtime NULL (pedido sin match en hec_pedidos) se muestran sin cálculo.
-# Columnas nuevas: las de leadtime_promedio sin sufijo, las de ETD-ETA con "_etd_eta".
+# CÁLCULO por empresa + ítem (cada fila es un tramo):
+#   desv_mediana = |cantidad - mediana|              (=ABS(C36-MEDX))
+#   z_modificado = constante_z * (cantidad - mediana) / MADX  (=0,6745*(C36-MEDX)/MADX)
+#   es_pico      = "SI" si |z_modificado| > umbral_pico   (=SI(ABS(E36)>ZTHR;"SI";"NO"))
+#   demanda_adu  = cantidad si no es pico, si no 0        (=SI(F36="NO";C36;"0"))
 # ---------------------------------------------------------------------------
 def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
-    for col, sufijo in COLUMNAS_LEADTIME.items():
-        columnas, filas = agregar_calculo(columnas, filas, col, sufijo, umbral_pico, constante_z)
-    return columnas, filas
+    i_cant = columnas.index("cantidad")
 
-
-def agregar_calculo(columnas, filas, col, sufijo, umbral_pico, constante_z):
-    i_lt = columnas.index(col)
-
-    leadtimes = defaultdict(list)
+    cantidades = defaultdict(list)
     for f in filas:
-        if f[i_lt] is not None:
-            leadtimes[(f[0], f[1])].append(f[i_lt])
-    medianas = {prov: median(v) for prov, v in leadtimes.items()}
-    # MADX: mediana de |leadtime - mediana| de cada empresa + proveedor
-    mads = {prov: median(abs(x - medianas[prov]) for x in v) for prov, v in leadtimes.items()}
+        cantidades[(f[0], f[1])].append(f[i_cant])
+    medianas = {sku: median(v) for sku, v in cantidades.items()}
+    # MADX: mediana de |cantidad - mediana| de cada empresa + ítem
+    mads = {sku: median(abs(c - medianas[sku]) for c in v) for sku, v in cantidades.items()}
 
-    nombres = [n + sufijo for n in ("desv_mediana", "z_modificado", "es_pico", "leadtime_adu")]
-    columnas = columnas[:i_lt + 1] + nombres + columnas[i_lt + 1:]
+    columnas = (columnas[:i_cant + 1] + ["desv_mediana", "z_modificado", "es_pico", "demanda_adu"]
+                + columnas[i_cant + 1:])
     nuevas = []
     for f in filas:
-        if f[i_lt] is None:
-            nuevas.append(f[:i_lt + 1] + (None, None, None, None) + f[i_lt + 1:])
-            continue
-        prov = (f[0], f[1])
-        dif = f[i_lt] - medianas[prov]
-        # Z modificado = constante_z * (leadtime - mediana) / MADX; 0 si MADX = 0 (no se puede dividir)
-        z = constante_z * dif / mads[prov] if mads[prov] else 0
+        sku = (f[0], f[1])
+        dif = f[i_cant] - medianas[sku]
+        # Z modificado = constante_z * (cantidad - mediana) / MADX; 0 si MADX = 0 (no se puede dividir)
+        z = constante_z * dif / mads[sku] if mads[sku] else 0
         # se compara con el Z sin redondear, como en Excel
         es_pico = "SI" if abs(z) > umbral_pico else "NO"
         z_red = round(z, DECIMALES_Z)
-        # leadtime para ADU: excluye los picos (se ponen en 0)
-        leadtime_adu = f[i_lt] if es_pico == "NO" else 0
-        nuevas.append(f[:i_lt + 1] + (abs(dif), z_red, es_pico, leadtime_adu) + f[i_lt + 1:])
+        # demanda para ADU: excluye los picos (se ponen en 0)
+        demanda_adu = f[i_cant] if es_pico == "NO" else 0
+        nuevas.append(f[:i_cant + 1] + (abs(dif), z_red, es_pico, demanda_adu) + f[i_cant + 1:])
     return columnas, nuevas
 
 
 # ---------------------------------------------------------------------------
-# 4. DLT = días confirmación pedido + lead time producción (leadtime_adu)
-#        + días coordinación booking + lead time puerto -> GYE (leadtime_adu_etd_eta)
-#        + días desaduanización y recepción en bodega
-# Un lead time vacío (NULL) se cuenta como 0.
+# ADU, CV y VF por empresa + ítem (se repiten en todas las filas del SKU).
+# Serie del SKU: tramos desde el más reciente (termina hoy) hasta el más antiguo con venta
+#   (si el ítem es nuevo, empieza en el tramo de su primera venta)
+#   - los tramos sin venta cuentan como 0
+#   - se quitan los picos ALTOS (es_pico = "SI" y cantidad sobre la mediana, z_modificado > 0):
+#     se quitan su venta Y sus días
+# ADU                 = venta de la serie / días de la serie   (u/día; 0 si sale negativo)
+#                       sin picos: dias = 365; con picos altos: 365 - días de esos tramos
+# desviacion_estandar = CV = stdev(venta diaria por tramo) / promedio(venta diaria por tramo)
+#                       (venta diaria del tramo = cantidad / días del tramo; tramos de 30 y 31 días)
+# VF = CV * factor del tramo de CV:
+#   CV <= 0.5        -> CV * 0.2 (VF bajo)
+#   0.5 < CV <= 1    -> CV * 0.4 (VF medio)
+#   CV > 1           -> CV * 0.6 (VF alto)
+#   no medible (menos de 3 tramos limpios o promedio <= 0) -> VF = 0.40, CV = 0
 # ---------------------------------------------------------------------------
-def agregar_dlt(columnas, filas, dias_fijos_dlt):
-    i_prod = columnas.index("leadtime_adu")
-    i_etd  = columnas.index("leadtime_adu_etd_eta")
-    nuevas = [f + (dias_fijos_dlt + (f[i_prod] or 0) + (f[i_etd] or 0),) for f in filas]
-    return columnas + ["dlt"], nuevas
+def agregar_adu_vf(columnas, filas, tramos, factores_vf):
+    bajo, medio, alto = factores_vf
+    i_mes  = columnas.index("mes")
+    i_cant = columnas.index("cantidad")
+    i_pico = columnas.index("es_pico")
+    i_z    = columnas.index("z_modificado")
 
+    tramo_de = {inicio: t for t, (inicio, _) in tramos.items()}   # fecha inicio -> tramo
 
-# ---------------------------------------------------------------------------
-# 5. LTF por fila (pedido) según su DLT:
-#   DLT <= 60        -> DLT * LTF bajo  (0.2)
-#   60 < DLT <= 100  -> DLT * LTF medio (0.4)
-#   DLT > 100        -> DLT * LTF alto  (0.6)
-# ---------------------------------------------------------------------------
-def agregar_ltf(columnas, filas, factores_ltf):
-    bajo, medio, alto = factores_ltf
-    i_dlt = columnas.index("dlt")
-    nuevas = []
+    tramo_mas_antiguo = {}
+    ventas = defaultdict(dict)                         # sku -> {tramo: cantidad, o None si es pico alto}
     for f in filas:
-        dlt = f[i_dlt]
-        if dlt <= LIMITE_LTF_BAJO:
-            factor = bajo
-        elif dlt <= LIMITE_LTF_MEDIO:
-            factor = medio
+        sku = (f[0], f[1])
+        t = tramo_de[f[i_mes]]
+        tramo_mas_antiguo[sku] = max(tramo_mas_antiguo.get(sku, t), t)
+        pico_alto = f[i_pico] == "SI" and f[i_z] > 0
+        ventas[sku][t] = None if pico_alto else f[i_cant]
+
+    calculos = {}
+    for sku, por_tramo in ventas.items():
+        # serie: (cantidad, días) de cada tramo limpio, desde el tramo 0 hasta el más antiguo con venta
+        serie = []
+        for t in range(tramo_mas_antiguo[sku] + 1):
+            cantidad = por_tramo.get(t, 0)             # tramo sin venta = 0
+            if cantidad is not None:                   # None = pico alto: se quitan venta y días
+                serie.append((cantidad, tramos[t][1]))
+
+        total_cant = sum(c for c, _ in serie)
+        total_dias = sum(d for _, d in serie)
+        adu = max(total_cant / total_dias, 0) if total_dias else 0
+
+        diarias = [c / d for c, d in serie]            # venta diaria de cada tramo
+        promedio = mean(diarias) if diarias else 0
+        if len(diarias) >= MIN_TRAMOS_LIMPIOS and promedio > 0:
+            # CV = desviación estándar / promedio (misma serie; la unidad se cancela)
+            cv = stdev(diarias) / promedio
+            if cv <= LIMITE_VF_BAJO:
+                factor = bajo
+            elif cv <= LIMITE_VF_MEDIO:
+                factor = medio
+            else:
+                factor = alto
+            vf = round(cv * factor, DECIMALES_DESV)    # VF = CV * factor del tramo
         else:
-            factor = alto
-        nuevas.append(f + (round(dlt * factor, 2),))
-    return columnas + ["ltf"], nuevas
+            cv, vf = 0, medio                          # CV no medible -> VF = 0.40
+        calculos[sku] = (round(cv, DECIMALES_DESV), vf, round(adu, 2))
+
+    return (columnas + ["desviacion_estandar", "VF", "ADU"],
+            [f + calculos[(f[0], f[1])] for f in filas])
 
 
 # ---------------------------------------------------------------------------
-# 6. CARGA (PostgreSQL): crea la tabla si no existe, borra sus registros, inserta
-#    y pasa a IKONIX los proveedores que importa MAXXIMUNDO para IKONIX
+# CARGA (PostgreSQL): crea la tabla si no existe, borra sus registros e inserta
 # ---------------------------------------------------------------------------
-COLUMNAS_TABLA = """
-    empresa                    varchar,
-    cod_proveedor              varchar,
-    nombre_proveedor           varchar,
-    hpe_numeropi               varchar,
-    heim_agente_forwarder      varchar,
-    leadtime_promedio_etd_eta  integer,
-    desv_mediana_etd_eta       numeric,
-    z_modificado_etd_eta       numeric,
-    es_pico_etd_eta            varchar(2),
-    leadtime_adu_etd_eta       integer,
-    leadtime_promedio          integer,
-    desv_mediana               numeric,
-    z_modificado               numeric,
-    es_pico                    varchar(2),
-    leadtime_adu               integer,
-    total_registros            integer,
-    dlt                        numeric,
-    ltf                        numeric
+CREATE = f"""
+CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
+    hev_empresa          varchar,
+    hev_codigoitem       varchar,
+    mes                  date,
+    cantidad             integer,
+    desv_mediana         numeric,
+    z_modificado         numeric,
+    es_pico              varchar(2),
+    demanda_adu          integer,
+    fecha_subida         date,
+    desviacion_estandar  numeric,
+    "VF"                 numeric,
+    "ADU"                numeric
+)
 """
 
-CREATE = f"CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} ({COLUMNAS_TABLA})"
-
-# Si la tabla ya existía con menos columnas, agrega las que falten (no borra la tabla)
-ALTER = f"ALTER TABLE {PG_SCHEMA}.{PG_TABLA} " + ", ".join(
-    f"ADD COLUMN IF NOT EXISTS {c.strip()}" for c in COLUMNAS_TABLA.strip().split(",\n"))
-
-UPDATE_IKONIX = f"""
-    UPDATE {PG_SCHEMA}.{PG_TABLA}
-    SET empresa = %s
-    WHERE empresa = %s AND cod_proveedor = ANY(%s)
-"""
+# Si la tabla ya existía sin las columnas: CREATE TABLE IF NOT EXISTS no agrega columnas.
+# El ADU_90 ya no se usa: se borra la columna si existe.
+ALTER = (f"ALTER TABLE {PG_SCHEMA}.{PG_TABLA} "
+         f'ADD COLUMN IF NOT EXISTS desviacion_estandar numeric, ADD COLUMN IF NOT EXISTS "VF" numeric, '
+         f'ADD COLUMN IF NOT EXISTS "ADU" numeric, DROP COLUMN IF EXISTS "ADU_90"')
 
 
 def cargar(columnas, filas):
-    insert = f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({', '.join(columnas)}) VALUES %s"
+    # nombres entre comillas: "VF" va en mayúsculas
+    nombres = ", ".join('"' + c + '"' for c in columnas)
+    insert = f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({nombres}) VALUES %s"
     conn = psycopg2.connect(**POSTGRES)
     try:
         with conn:                      # una sola transacción: si falla, no deja la tabla vacía
@@ -274,28 +291,22 @@ def cargar(columnas, filas):
                 cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
                 if filas:
                     execute_values(cur, insert, filas, page_size=5000)
-                # proveedores que importa MAXXIMUNDO para IKONIX: se pasan a IKONIX (misma transacción)
-                cur.execute(UPDATE_IKONIX, (EMPRESA_DESTINO, EMPRESA_IMPORTADORA, PROVEEDORES_DESTINO))
-                log.info("Pasadas a %s %s filas de proveedores de %s",
-                         EMPRESA_DESTINO, cur.rowcount, EMPRESA_IMPORTADORA)
         log.info("Cargadas %s filas en %s.%s", len(filas), PG_SCHEMA, PG_TABLA)
     finally:
         conn.close()
 
 
-# ---------------------------------------------------------------------------
-# EJECUCIÓN: parámetros -> extracción -> picos -> DLT -> LTF -> carga
-# ---------------------------------------------------------------------------
 def ejecutar():
-    umbral_pico, constante_z, dias_datos, dias_fijos_dlt, factores_ltf = leer_parametros()
-    columnas, filas = agregar_desv_mediana(*extraer(dias_datos), umbral_pico, constante_z)
-    columnas, filas = agregar_dlt(columnas, filas, dias_fijos_dlt)
-    cargar(*agregar_ltf(columnas, filas, factores_ltf))
+    dias, umbral_pico, constante_z, factores_vf = leer_parametros()
+    columnas, filas, tramos = extraer(dias)
+    columnas, filas = agregar_desv_mediana(columnas, filas, umbral_pico, constante_z)
+    cargar(*agregar_adu_vf(columnas, filas, tramos, factores_vf))
 
 
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
         ejecutar()
     except Exception:
-        log.exception("Error al cargar lead time por proveedor")
+        log.exception("Error al cargar ventas mensuales")
         raise
