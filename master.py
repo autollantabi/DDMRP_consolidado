@@ -7,6 +7,7 @@ import psycopg2
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "tablas_resumen"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "conection"))
+import ddmrp_abc
 import ddmrp_bodega
 import ddmrp_inventario
 import ddmrp_medidas_top
@@ -20,6 +21,7 @@ PROCESOS = [
     ("ddmrp_ventas_picos", ddmrp_ventas_picos.ejecutar),
     ("ddmrp_proveedores", ddmrp_proveedores.ejecutar),
     ("ddmrp_medidas_top", ddmrp_medidas_top.ejecutar),
+    ("ddmrp_abc", ddmrp_abc.ejecutar),
 ]
 
 PG_SCHEMA = "core"
@@ -67,6 +69,7 @@ SELECT
 	b.dit_disenio AS "DISEÑO",
     b.dit_antiguedad AS "ANTIGUEDAD",
 	'NO'::text AS "TOP",                 -- se llena con SQL_TOP
+	f.segmento_final AS "CLUSTER",       -- clasificación ABC (ddmrp_abc): A, B, C o D; vacío si no entra
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
 	ROUND(a."365D"::numeric, 2) AS "VTAS_1_AÑO",
@@ -99,6 +102,7 @@ SELECT
     ROUND(e."Backorder>30D"::numeric, 2) AS "Backorders>30D",
 	0::numeric AS "MES INV TOTAL",       -- se llena con SQL_MES_INV_TOTAL
 	0::numeric AS "STOCK TOTAL",         -- se llena con SQL_STOCK_TOTAL
+    0::numeric AS "STOCK PROYECTADO DLT",         -- se llena con SQL_STOCK_TOTAL
 	0::numeric AS "DLT",                 -- se llena con SQL_DLT
 	0::numeric AS "LTF",                 -- se llena con SQL_LTF
 	0::numeric AS "VF"                   -- se llena con SQL_VF
@@ -107,6 +111,13 @@ LEFT JOIN core.vw_ddmrp_ventas a ON a.hev_empresa = b.dit_empresa AND a.hev_codi
 LEFT JOIN core.ddmrp_inventario c ON b.dit_empresa = c.ddmpr_empresa AND b.dit_identificador = c.ddmrp_item
 LEFT JOIN core.ddmrp_bodegas d ON b.dit_empresa = d.empresa AND b.dit_codigo = d.codigo
 LEFT JOIN core.vw_ddmrp_trans_ped e ON b.dit_empresa = e.dit_empresa AND b.dit_codigo = e.dit_codigo
+-- ddmrp_abc tiene una fila por empresa + línea + ítem: se agrupa para no duplicar filas
+-- si un ítem vende en dos líneas (queda la mejor clase: A < B < C < D)
+LEFT JOIN (
+	SELECT empresa, codigo_item, MIN(segmento_final) AS segmento_final
+	FROM core.ddmrp_abc
+	GROUP BY empresa, codigo_item
+) f ON b.dit_empresa = f.empresa AND b.dit_codigo = f.codigo_item
 """
 
 
@@ -119,12 +130,20 @@ FROM core.ddmrp_medidas_top
 """
 
 # ---------------------------------------------------------------------------
-# STOCK TOTAL = EN STOCK + TRANSITO 30D + TRANSITO 60D + PEDIDOS + BACKORDERS
+# STOCK TOTAL = EN STOCK + TRANSITO 15D + TRANSITO 30D + TRANSITO 60D + PEDIDOS + BACKORDERS
 # ---------------------------------------------------------------------------
 SQL_STOCK_TOTAL = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
 SET "STOCK TOTAL" = ROUND(COALESCE("EN STOCK", 0) + COALESCE("TRANSITO 15D", 0) + COALESCE("TRANSITO 30D", 0) + COALESCE("TRANSITO 60D", 0)
                           + COALESCE("PEDIDOS", 0) + COALESCE("BACKORDERS", 0), 2)
+"""
+
+# ---------------------------------------------------------------------------
+# STOCK PROYECTADO DLT = ("STOCK TOTAL" - (DLT * ADU))
+# ---------------------------------------------------------------------------
+SQL_STOCK_PROYECTADO_DLT = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "STOCK PROYECTADO DLT" = ROUND(COALESCE("STOCK TOTAL", 0) - ("DLT" * "ADU"), 2)
 """
 
 # ---------------------------------------------------------------------------
@@ -262,14 +281,11 @@ WHERE "VF" = 0
 """
 
 # ---------------------------------------------------------------------------
-# ADU (u/día) por ítem: ya viene calculado en ddmrp_ventas_picos (sin picos altos)
+# ADU (u/día) por ítem: ya viene calculado en ddmrp_ventas_picos
+#   (últimos 365 días, param 1, sin los tramos con pico alto ni sus días)
 # ---------------------------------------------------------------------------
 SQL_ADU = """
 SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU" AS adu
-FROM core.ddmrp_ventas_picos
-"""
-SQL_ADU_90 = """
-SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU_90" AS adu_90
 FROM core.ddmrp_ventas_picos
 """
 
@@ -301,12 +317,12 @@ WHERE "LTF" = 0
 
 # ---------------------------------------------------------------------------
 # ZONA ROJA por ítem:
-#   ZONA ROJA BASE      = ADU_90 * DLT * LTF
+#   ZONA ROJA BASE      = ADU * DLT * LTF
 #   ZONA ROJA SEGURIDAD = ZONA ROJA BASE * VF
 # ---------------------------------------------------------------------------
 SQL_ZONA_ROJA_BASE = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "ZONA ROJA BASE" = ROUND("ADU_90" * "DLT" * "LTF", 2)
+SET "ZONA ROJA BASE" = ROUND("ADU" * "DLT" * "LTF", 2)
 """
 
 SQL_ZONA_ROJA_SEGURIDAD = f"""
@@ -323,12 +339,12 @@ SET "TOR" = "ZONA ROJA BASE" + "ZONA ROJA SEGURIDAD"
 """
 
 # ---------------------------------------------------------------------------
-# ZONA AMARILLA = ADU_90 * DLT
+# ZONA AMARILLA = ADU * DLT
 # TOY (Top of Yellow) = TOR + ZONA AMARILLA
 # ---------------------------------------------------------------------------
 SQL_ZONA_AMARILLA = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "ZONA AMARILLA" = ROUND("ADU_90" * "DLT", 2)
+SET "ZONA AMARILLA" = ROUND("ADU" * "DLT", 2)
 """
 
 SQL_TOY = f"""
@@ -337,13 +353,13 @@ SET "TOY" = "TOR" + "ZONA AMARILLA"
 """
 
 # ---------------------------------------------------------------------------
-# ZONA VERDE = MAX( ADU_90 * Ciclo de Pedido (param 3) ; ADU_90 * DLT * LTF )
-#   ADU_90 * DLT * LTF es la ZONA ROJA BASE. Sin MOQ por ahora.
+# ZONA VERDE = MAX( ADU * Ciclo de Pedido (param 3) ; ADU * DLT * LTF )
+#   ADU * DLT * LTF es la ZONA ROJA BASE. Sin MOQ por ahora.
 # ---------------------------------------------------------------------------
 SQL_ZONA_VERDE = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
 SET "ZONA VERDE" = GREATEST(
-	ROUND("ADU_90" * (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = {ID_CICLO_PEDIDO})::numeric, 2),
+	ROUND("ADU" * (SELECT ddmrp_valor_num FROM core.ddmrp_parametros WHERE ddmrp_id = {ID_CICLO_PEDIDO})::numeric, 2),
 	"ZONA ROJA BASE"
 )
 """
@@ -369,8 +385,8 @@ SET "NFP" = "STOCK TOTAL" - 0
 
 # ---------------------------------------------------------------------------
 # PEDIDO SUGERIDO: solo se pide si NFP <= TOY (regla de disparo)
-#   PEDIDO SUGERIDO = TOG - NFP   si NFP <= TOY
-#   PEDIDO SUGERIDO = 0           si NFP >  TOY
+#   PEDIDO SUGERIDO = TOG - NFP   si NFP <= TOG
+#   PEDIDO SUGERIDO = 0           si NFP >  TOG
 # ---------------------------------------------------------------------------
 SQL_PEDIDO_SUGERIDO = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
@@ -444,8 +460,8 @@ def cargar_ddmrp():
                 nombres = ", ".join('"' + nombre + '"' for nombre, _ in columnas)
                 # ADU se llena aparte (SQL_ADU); ítems sin venta quedan en 0
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU" numeric DEFAULT 0')
-                # ADU_90 se llena aparte (SQL_ADU_90); ítems sin venta quedan en 0
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU_90" numeric DEFAULT 0')
+                # ADU_90 ya no se usa (las zonas van con el ADU): se borra la columna si existe
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} DROP COLUMN IF EXISTS "ADU_90"')
                 # zona roja y TOR se llenan aparte (SQL_ZONA_ROJA_BASE, SQL_ZONA_ROJA_SEGURIDAD, SQL_TOR)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA BASE" numeric DEFAULT 0')
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA SEGURIDAD" numeric DEFAULT 0')
@@ -482,6 +498,7 @@ def cargar_ddmrp():
                 log.info("TOP actualizado en %s ítems", cur.rowcount)
                 # stock total, demandas, variación y meses de inventario (usan columnas ya cargadas)
                 cur.execute(SQL_STOCK_TOTAL)
+                cur.execute(SQL_STOCK_PROYECTADO_DLT)
                 cur.execute(SQL_DEMANDA_MES_1ANIO)
                 cur.execute(SQL_DEMANDA_MES_90D)
                 cur.execute(SQL_VAR_DEMANDA)
@@ -523,14 +540,6 @@ def cargar_ddmrp():
                     WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
                 """)
                 log.info("ADU actualizado en %s ítems", cur.rowcount)
-                # pega el ADU_90 por empresa + código de ítem
-                cur.execute(f"""
-                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
-                    SET "ADU_90" = a.adu_90
-                    FROM ({SQL_ADU_90}) a
-                    WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
-                """)
-                log.info("ADU_90 actualizado en %s ítems", cur.rowcount)
                 # LTF según el tramo del DLT de cada ítem
                 cur.execute(SQL_LTF)
                 # LTF por defecto (0.20) donde quedó en 0
