@@ -11,15 +11,21 @@ import ddmrp_abc
 import ddmrp_bodega
 import ddmrp_inventario
 import ddmrp_medidas_top
-import ddmrp_proveedores
+import ddmrp_proveedor_item
+#import ddmrp_proveedores
+import ddmrp_proveedores_dlt
 import ddmrp_ventas_picos
 from config import POSTGRES
+# tabla marca -> proveedor de IKONIX: una sola definición, en ddmrp_proveedor_item.py
+from ddmrp_proveedor_item import EMPRESA_DLT_POR_MARCA, MARCA_PROVEEDOR_IKONIX
 
 PROCESOS = [
     ("ddmrp_bodega", ddmrp_bodega.ejecutar),
     ("ddmrp_inventario", ddmrp_inventario.ejecutar),
     ("ddmrp_ventas_picos", ddmrp_ventas_picos.ejecutar),
-    ("ddmrp_proveedores", ddmrp_proveedores.ejecutar),
+    #("ddmrp_proveedores", ddmrp_proveedores.ejecutar),
+    ("ddmrp_proveedores_dlt", ddmrp_proveedores_dlt.ejecutar),
+    ("ddmrp_proveedor_item", ddmrp_proveedor_item.ejecutar),     # proveedor 1 y 2 por ítem
     ("ddmrp_medidas_top", ddmrp_medidas_top.ejecutar),
     ("ddmrp_abc", ddmrp_abc.ejecutar),
 ]
@@ -37,14 +43,9 @@ ID_VF_MEDIO     = 8    # VF medio  (0.4): 0.5 < CV <= 1     -> VF
 ID_VF_ALTO      = 9    # VF alto   (0.6): CV > 1            -> VF
 
 # IKONIX no importa: MAXXIMUNDO le importa y los códigos de ítem son distintos entre
-# empresas, así que el DLT de IKONIX se asigna por MARCA -> proveedor de MAXXIMUNDO
-# (ddmrp_proveedores.py ya deja esas filas con empresa = 'IKONIX')
-EMPRESA_DLT_POR_MARCA = "IKONIX"
-MARCA_PROVEEDOR_IKONIX = {
-    "UYUSTOOLS": "P2222222222002",   # HANGZHOU HANTOO ENTERPRISES CO., LTD
-    "DONGCHENG": "P9999999999994",   # JIANGSU DONGCHENG IMPORT AND EXPORT TRADE CO.,LTD.
-    "SATA":      "P9999999999993",   # SHANGHAI DATECH IMP.&EXP. ENTERPRISES CO., LTD.
-}
+# empresas, así que el DLT de IKONIX se asigna por MARCA -> proveedor
+# (el DLT de esos proveedores está en ddmrp_proveedores_dlt con empresa = 'IKONIX').
+# EMPRESA_DLT_POR_MARCA y MARCA_PROVEEDOR_IKONIX se importan de ddmrp_proveedor_item.py
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 log = logging.getLogger("master")
@@ -57,8 +58,12 @@ SQL_DDMRP = """
 SELECT
 	b.dit_empresa AS "EMPRESA",
 	b.dit_codigo AS "CODIGO_ITEM",
-    b.dit_codigoproveedor as "CODIGO_PROVEEDOR",
 	b.dit_nombre AS "DESCRIPCION",
+    b.dit_codigoproveedor as "CODIGO_PROVEEDOR",
+	NULL::varchar AS "COD. PROV1",       -- se llenan con SQL_PROVEEDOR_ITEM
+	NULL::varchar AS "NOM. PROV1",
+	NULL::varchar AS "COD. PROV2",
+	NULL::varchar AS "NOM. PROV2",
 	b.dit_grupo AS "GRUPO",
     b.dit_propiedad AS "PROPIEDAD",
 	b.dit_rin as "RIN",
@@ -68,8 +73,8 @@ SELECT
 	b.dit_codigobarras AS "BARRAS",
 	b.dit_disenio AS "DISEÑO",
     b.dit_antiguedad AS "ANTIGUEDAD",
-	'NO'::text AS "TOP",                 -- se llena con SQL_TOP
-	f.segmento_final AS "CLUSTER",       -- clasificación ABC (ddmrp_abc): A, B, C o D; vacío si no entra
+	'NO'::text AS "TOP",
+	f.segmento_final AS "CLUSTER",
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
 	ROUND(a."365D"::numeric, 2) AS "VTAS_1_AÑO",
@@ -89,20 +94,20 @@ SELECT
     END AS "EN STOCK",
     ROUND(e."Transito15D"::numeric, 2) AS "TRANSITO 15D",
 	ROUND(e."Transito30D"::numeric, 2) AS "TRANSITO 30D",
-	ROUND(e."Transito60D"::numeric, 2) AS "TRANSITO 60D",
+	ROUND(e."Transito45D"::numeric, 2) AS "TRANSITO 45D",
+	ROUND(e."Transito>45D"::numeric, 2) AS "TRANSITO >45D",
 	ROUND(e.pedido::numeric, 2) AS "PEDIDOS",
     ROUND(e."Pedidos15D"::numeric, 2) AS "Pedidos15D",
 	ROUND(e."Pedidos30D"::numeric, 2) AS "Pedidos30D",
-	ROUND(e."Pedidos60D"::numeric, 2) AS "Pedidos60D",
-	ROUND(e."Pedidos90D"::numeric, 2) AS "Pedidos90D",
-	ROUND(e."Pedidos>90D"::numeric, 2) AS "Pedidos>90D",
+	ROUND(e."Pedidos45D"::numeric, 2) AS "Pedidos45D",
+	ROUND(e."Pedidos>45D"::numeric, 2) AS "Pedidos>45D",
 	ROUND(e."Backorder"::numeric, 2) AS "BACKORDERS",
     ROUND(e."Backorder15D"::numeric, 2) AS "Backorders_15D",
     ROUND(e."Backorder30D"::numeric, 2) AS "Backorders_30D",
     ROUND(e."Backorder>30D"::numeric, 2) AS "Backorders>30D",
 	0::numeric AS "MES INV TOTAL",       -- se llena con SQL_MES_INV_TOTAL
 	0::numeric AS "STOCK TOTAL",         -- se llena con SQL_STOCK_TOTAL
-    0::numeric AS "STOCK PROYECTADO DLT",         -- se llena con SQL_STOCK_TOTAL
+    0::numeric AS "STOCK PROYECTADO DLT",         -- se llena con SQL_STOCK_PROYECTADO_DLT
 	0::numeric AS "DLT",                 -- se llena con SQL_DLT
 	0::numeric AS "LTF",                 -- se llena con SQL_LTF
 	0::numeric AS "VF"                   -- se llena con SQL_VF
@@ -130,16 +135,19 @@ FROM core.ddmrp_medidas_top
 """
 
 # ---------------------------------------------------------------------------
-# STOCK TOTAL = EN STOCK + TRANSITO 15D + TRANSITO 30D + TRANSITO 60D + PEDIDOS + BACKORDERS
+# STOCK TOTAL = EN STOCK + TRANSITO 15D + TRANSITO 30D + TRANSITO 45D + TRANSITO >45D + PEDIDOS + BACKORDERS
+#   (los tramos de tránsito no se solapan: 0-15, 16-30, 31-45 y más de 45 días)
 # ---------------------------------------------------------------------------
 SQL_STOCK_TOTAL = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "STOCK TOTAL" = ROUND(COALESCE("EN STOCK", 0) + COALESCE("TRANSITO 15D", 0) + COALESCE("TRANSITO 30D", 0) + COALESCE("TRANSITO 60D", 0)
+SET "STOCK TOTAL" = ROUND(COALESCE("EN STOCK", 0) + COALESCE("TRANSITO 15D", 0) + COALESCE("TRANSITO 30D", 0)
+                          + COALESCE("TRANSITO 45D", 0) + COALESCE("TRANSITO >45D", 0)
                           + COALESCE("PEDIDOS", 0) + COALESCE("BACKORDERS", 0), 2)
 """
 
 # ---------------------------------------------------------------------------
 # STOCK PROYECTADO DLT = ("STOCK TOTAL" - (DLT * ADU))
+#   se ejecuta DESPUÉS de cargar el DLT y el ADU (antes valen 0 y daría STOCK TOTAL)
 # ---------------------------------------------------------------------------
 SQL_STOCK_PROYECTADO_DLT = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
@@ -190,43 +198,56 @@ END
 """
 
 # ---------------------------------------------------------------------------
-# DLT por ítem: promedio por proveedor (ddmrp_proveedores) llevado al ítem con
-# vw_ddmrp_item_proveedor; si el ítem tiene varios proveedores se promedian.
-# Ítems sin proveedor quedan en 0.
+# DLT por proveedor: core.ddmrp_proveedores_dlt (tiempos cargados a mano por empresa +
+# proveedor; ddmrp_proveedores_dlt.py calcula ddmrp_dlt_max y ddmrp_dlt_min).
+#   dlt_max = todos los tiempos (incluye el tiempo de backorder)
+#   dlt_min = dlt_max sin el tiempo de backorder
+# Solo proveedores con DLT > 0: los que están en 0 o vacíos no cuentan y el ítem
+# cae al promedio por marca.
 # ---------------------------------------------------------------------------
-SQL_DLT = """
+SQL_DLT_PROVEEDOR = """
+SELECT
+	ddmrp_empresa          AS empresa,
+	ddmrp_codigo_proveedor AS cod_proveedor,
+	ROUND(AVG(ddmrp_dlt_max)::numeric, 2) AS dlt_max,
+	ROUND(AVG(ddmrp_dlt_min)::numeric, 2) AS dlt_min
+FROM core.ddmrp_proveedores_dlt
+WHERE ddmrp_dlt_max > 0
+GROUP BY ddmrp_empresa, ddmrp_codigo_proveedor
+"""
+
+# DLT que le toca al ítem según tenga o no backorders abiertos (columna BACKORDERS de core.ddmrp):
+#   con backorders -> dlt_max | sin backorders -> dlt_min
+DLT_SEGUN_BACKORDER = 'CASE WHEN COALESCE(d."BACKORDERS", 0) > 0 THEN {0}.dlt_max ELSE {0}.dlt_min END'
+
+# ---------------------------------------------------------------------------
+# DLT por ítem: DLT max y min del proveedor (SQL_DLT_PROVEEDOR) llevados al ítem con
+# vw_ddmrp_item_proveedor; si el ítem tiene varios proveedores se promedian.
+# Ítems sin proveedor (o con proveedor sin DLT) quedan en 0.
+# ---------------------------------------------------------------------------
+SQL_DLT = f"""
 SELECT
 	v.empresa,
 	v.codigoitem,
-	ROUND(AVG(p.dlt), 2) AS dlt
+	ROUND(AVG(p.dlt_max), 2) AS dlt_max,
+	ROUND(AVG(p.dlt_min), 2) AS dlt_min
 FROM core.vw_ddmrp_item_proveedor v
-JOIN (
-	SELECT
-		empresa,
-		cod_proveedor,
-		ROUND(AVG(dlt), 2) AS dlt
-	FROM core.ddmrp_proveedores
-	GROUP BY empresa, cod_proveedor
-) p ON p.empresa = v.empresa AND p.cod_proveedor = v.heim_codigoproveedor
+JOIN ({SQL_DLT_PROVEEDOR}) p ON p.empresa = v.empresa AND p.cod_proveedor = v.heim_codigoproveedor
 GROUP BY v.empresa, v.codigoitem
 """
 
 # ---------------------------------------------------------------------------
 # DLT de IKONIX por marca: la MARCA del ítem da el proveedor (MARCA_PROVEEDOR_IKONIX)
-# y se pone el DLT promedio de ese proveedor en ddmrp_proveedores (empresa IKONIX).
-# Marcas que no están en la lista o proveedores sin filas quedan como estaban.
+# y se pone el DLT max o min de ese proveedor en ddmrp_proveedores_dlt (empresa IKONIX)
+# según el ítem tenga o no backorders.
+# Marcas que no están en la lista o proveedores sin DLT quedan como estaban.
 #   parámetros: empresa, lista de marcas, lista de proveedores (mismo orden)
 # ---------------------------------------------------------------------------
 SQL_DLT_IKONIX = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA} d
-SET "DLT" = p.dlt
+SET "DLT" = {DLT_SEGUN_BACKORDER.format("p")}
 FROM unnest(%(marcas)s::text[], %(proveedores)s::text[]) AS m(marca, cod_proveedor)
-JOIN (
-	SELECT cod_proveedor, ROUND(AVG(dlt), 2) AS dlt
-	FROM core.ddmrp_proveedores
-	WHERE empresa = %(empresa)s
-	GROUP BY cod_proveedor
-) p ON p.cod_proveedor = m.cod_proveedor
+JOIN ({SQL_DLT_PROVEEDOR}) p ON p.empresa = %(empresa)s AND p.cod_proveedor = m.cod_proveedor
 WHERE d."EMPRESA" = %(empresa)s AND UPPER(TRIM(d."MARCA")) = m.marca
 """
 
@@ -286,6 +307,13 @@ WHERE "VF" = 0
 # ---------------------------------------------------------------------------
 SQL_ADU = """
 SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU" AS adu
+FROM core.ddmrp_ventas_picos
+"""
+
+# ADU60D (u/día): misma regla que el ADU pero con los últimos 60 días. Solo se muestra,
+# no entra en ningún cálculo.
+SQL_ADU_60D = """
+SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU60D" AS adu_60d
 FROM core.ddmrp_ventas_picos
 """
 
@@ -436,6 +464,16 @@ SET "P. LISTA VS ULT. COSTO" = ROUND(
 , 2)
 """
 
+# ---------------------------------------------------------------------------
+# PROVEEDOR 1 y 2 por ítem (solo informativo): ya viene armado en core.ddmrp_proveedor_item
+# (ddmrp_proveedor_item.py: dim_item.dit_proveedorprincipal / dit_proveedorsecundario con
+#  nombre de dim_socios; si dim_item no tiene proveedor, los 2 de importación más recientes)
+# ---------------------------------------------------------------------------
+SQL_PROVEEDOR_ITEM = """
+SELECT empresa, codigo_item AS codigoitem, cod_prov1, nom_prov1, cod_prov2, nom_prov2
+FROM core.ddmrp_proveedor_item
+"""
+
 def cargar_ddmrp():
     """Crea core.ddmrp si no existe (con las columnas del SELECT), borra sus registros e inserta."""
     conn = psycopg2.connect(**POSTGRES)
@@ -460,6 +498,8 @@ def cargar_ddmrp():
                 nombres = ", ".join('"' + nombre + '"' for nombre, _ in columnas)
                 # ADU se llena aparte (SQL_ADU); ítems sin venta quedan en 0
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU" numeric DEFAULT 0')
+                # ADU60D va al lado del ADU (SQL_ADU_60D); solo se muestra
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU60D" numeric DEFAULT 0')
                 # ADU_90 ya no se usa (las zonas van con el ADU): se borra la columna si existe
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} DROP COLUMN IF EXISTS "ADU_90"')
                 # zona roja y TOR se llenan aparte (SQL_ZONA_ROJA_BASE, SQL_ZONA_ROJA_SEGURIDAD, SQL_TOR)
@@ -485,6 +525,11 @@ def cargar_ddmrp():
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "LISTA PRECIOS A" numeric(20,2) DEFAULT 0')
                 # margen lista vs último costo se llena aparte (SQL_PLISTA_VS_ULTCOSTO)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "P. LISTA VS ULT. COSTO" numeric(20,2)')
+                # COD./NOM. PROV1 y PROV2 vienen vacías en SQL_DDMRP (al lado de DESCRIPCION)
+                # y se llenan con SQL_PROVEEDOR_ITEM al final de la carga
+                # columnas de la versión anterior (lista separada por comas), ya no se usan
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} DROP COLUMN IF EXISTS "COD_PROVEEDOR_IMP", '
+                            f'DROP COLUMN IF EXISTS "NOMBRE_PROVEEDOR"')
                 cur.execute(f"TRUNCATE TABLE {PG_SCHEMA}.{PG_TABLA};")
                 cur.execute(f"INSERT INTO {PG_SCHEMA}.{PG_TABLA} ({nombres}) {SQL_DDMRP}")
                 filas = cur.rowcount
@@ -498,15 +543,15 @@ def cargar_ddmrp():
                 log.info("TOP actualizado en %s ítems", cur.rowcount)
                 # stock total, demandas, variación y meses de inventario (usan columnas ya cargadas)
                 cur.execute(SQL_STOCK_TOTAL)
-                cur.execute(SQL_STOCK_PROYECTADO_DLT)
                 cur.execute(SQL_DEMANDA_MES_1ANIO)
                 cur.execute(SQL_DEMANDA_MES_90D)
                 cur.execute(SQL_VAR_DEMANDA)
                 cur.execute(SQL_MES_INV_TOTAL)
                 # pega el DLT por empresa + código de ítem
+                # con backorders -> DLT max, sin backorders -> DLT min
                 cur.execute(f"""
                     UPDATE {PG_SCHEMA}.{PG_TABLA} d
-                    SET "DLT" = x.dlt
+                    SET "DLT" = {DLT_SEGUN_BACKORDER.format("x")}
                     FROM ({SQL_DLT}) x
                     WHERE d."EMPRESA" = x.empresa AND d."CODIGO_ITEM" = x.codigoitem
                 """)
@@ -540,6 +585,16 @@ def cargar_ddmrp():
                     WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
                 """)
                 log.info("ADU actualizado en %s ítems", cur.rowcount)
+                # pega el ADU60D por empresa + código de ítem (solo se muestra)
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
+                    SET "ADU60D" = a.adu_60d
+                    FROM ({SQL_ADU_60D}) a
+                    WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
+                """)
+                log.info("ADU60D actualizado en %s ítems", cur.rowcount)
+                # stock proyectado al DLT (usa STOCK TOTAL, DLT y ADU ya cargados)
+                cur.execute(SQL_STOCK_PROYECTADO_DLT)
                 # LTF según el tramo del DLT de cada ítem
                 cur.execute(SQL_LTF)
                 # LTF por defecto (0.20) donde quedó en 0
@@ -574,6 +629,17 @@ def cargar_ddmrp():
                 log.info("Costos y precio actualizados en %s ítems", cur.rowcount)
                 # margen lista vs último costo (usa LISTA PRECIOS A y ULTIMO COSTO)
                 cur.execute(SQL_PLISTA_VS_ULTCOSTO)
+                # pega proveedor 1 y 2 por empresa + código de ítem (de core.ddmrp_proveedor_item)
+                cur.execute(f"""
+                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
+                    SET "COD. PROV1" = x.cod_prov1,
+                        "NOM. PROV1" = x.nom_prov1,
+                        "COD. PROV2" = x.cod_prov2,
+                        "NOM. PROV2" = x.nom_prov2
+                    FROM ({SQL_PROVEEDOR_ITEM}) x
+                    WHERE d."EMPRESA" = x.empresa AND d."CODIGO_ITEM" = x.codigoitem
+                """)
+                log.info("Proveedor 1 y 2 actualizados en %s ítems", cur.rowcount)
         log.info("Cargadas %s filas en %s.%s", filas, PG_SCHEMA, PG_TABLA)
     finally:
         conn.close()

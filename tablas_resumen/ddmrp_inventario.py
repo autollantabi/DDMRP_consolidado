@@ -3,13 +3,12 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-import pyodbc
 import psycopg2
 from psycopg2.extras import execute_values
 
 # config.py está en DDMRP/conection
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "conection"))
-from config import POSTGRES, sqlserver_conn_str
+from config import POSTGRES
 
 # ---------------------------------------------------------------------------
 # CONFIGURACIÓN
@@ -17,8 +16,8 @@ from config import POSTGRES, sqlserver_conn_str
 PG_SCHEMA = "core"            # cambia si ddmrp_inventario está en otro esquema
 PG_TABLA  = "ddmrp_inventario"
 
-# Bodegas por empresa: códigos de dim_bodegas.dib_codigobodega, se comparan tal
-# cual (sin rellenar con 0). Solo se extraen las empresas que estén aquí.
+# Bodegas de venta por empresa: códigos de bodega (core.hec_inventario.inv_codigo_bodega,
+# los mismos de SAP). Solo se extraen las empresas que estén aquí.
 BODEGAS_POR_EMPRESA = {
     "MAXXIMUNDO": ["02", "03", "07", "08", "09", "10"],
     "AUTOLLANTA": ["01", "02", "03", "07", "08", "09", "10"],
@@ -70,62 +69,49 @@ def leer_parametros():
 
 
 # ---------------------------------------------------------------------------
-# EXTRACCIÓN (SQL Server)
+# EXTRACCIÓN (PostgreSQL, core.hec_inventario: una foto diaria de stock por ítem y bodega)
+#   Un día cuenta si el ítem tuvo stock > 0 en al menos una bodega de venta de su empresa.
+#   La bodega se cruza por CÓDIGO (no por nombre: los nombres cambian, el código no).
 # ---------------------------------------------------------------------------
 def extraer(dias_1anio, dias_90d):
-    # Fechas dinámicas (corte - dias_1anio y corte - dias_90d)
-    desde_1a  = HOY - timedelta(days=dias_1anio - 1)   # 365: 2026-09-22 -> 2025-09-21
-    desde_90d = HOY - timedelta(days=dias_90d - 1)     # 90:  2026-09-22 -> 2026-06-24
+    # Fechas dinámicas: ventanas de dias_1anio y dias_90d días que terminan en el día de corte
+    desde_1a  = HOY - timedelta(days=dias_1anio - 1)   # 365: 2026-10-07 -> 2025-10-08
+    desde_90d = HOY - timedelta(days=dias_90d - 1)     # 90:  2026-10-07 -> 2026-07-10
 
-    # (b.dib_nombreempresa = ? AND b.dib_codigobodega IN (?, ...)) OR (...) por cada empresa
-    bloques, params_bodegas = [], []
-    for empresa, codigos in BODEGAS_POR_EMPRESA.items():
-        marcas = ", ".join("?" for _ in codigos)
-        bloques.append(f"(b.dib_nombreempresa = ? AND b.dib_codigobodega IN ({marcas}))")
-        params_bodegas += [empresa, *codigos]
-    filtro_bodegas = " OR ".join(bloques)
+    # pares (empresa, código de bodega de venta)
+    bodegas = tuple((empresa, codigo) for empresa, codigos in BODEGAS_POR_EMPRESA.items()
+                    for codigo in codigos)
 
-    sql = f"""
+    sql = """
         SELECT
-            hex_empresa,
-            hex_identificadoritem,
-            COUNT(DISTINCT CAST(hex_fechasubida AS DATE)) AS dias_stock_1anio,
-            COUNT(DISTINCT CASE
-                               WHEN hex_fechasubida >= ?
-                               THEN CAST(hex_fechasubida AS DATE)
-                           END) AS dias_stock_90d
-        FROM DWH.dbo.hec_existencias
-        --FROM DWH.dbo.existencias_stox
-        WHERE hex_fechasubida >= ?
-          AND hex_fechasubida < ?
-          AND hex_stock > 0
-          AND EXISTS (
-              SELECT 1
-              FROM DWH.dbo.dim_bodegas b
-              WHERE b.dib_nombreempresa = hex_empresa
-                AND b.dib_nombrebodega  = hex_nombrealmacen
-                AND ({filtro_bodegas})
-          )
+            inv_empresa,
+            inv_cod_item,
+            COUNT(DISTINCT inv_fecha_subida::date)                                    AS dias_stock_1anio,
+            COUNT(DISTINCT inv_fecha_subida::date) FILTER (WHERE inv_fecha_subida >= %(desde_90d)s)
+                                                                                      AS dias_stock_90d
+        FROM core.hec_inventario
+        WHERE inv_fecha_subida >= %(desde_1a)s
+          AND inv_fecha_subida <  %(hasta)s
+          AND inv_stock > 0
+          AND (inv_empresa, inv_codigo_bodega) IN %(bodegas)s
     """
-    # Fechas como texto YYYYMMDD: el driver "SQL Server" no acepta parámetros tipo date
-    params = [desde_90d.strftime("%Y%m%d"), desde_1a.strftime("%Y%m%d"),
-              HASTA.strftime("%Y%m%d"), *params_bodegas]
+    params = {"desde_90d": desde_90d, "desde_1a": desde_1a, "hasta": HASTA, "bodegas": bodegas}
 
     if FILTRO_EMPRESA:
-        sql += " AND hex_empresa = ?"
-        params.append(FILTRO_EMPRESA)
+        sql += " AND inv_empresa = %(empresa)s"
+        params["empresa"] = FILTRO_EMPRESA
     if FILTRO_ITEM:
-        sql += " AND hex_identificadoritem = ?"
-        params.append(FILTRO_ITEM)
+        sql += " AND inv_cod_item = %(item)s"
+        params["item"] = FILTRO_ITEM
 
-    sql += " GROUP BY hex_empresa, hex_identificadoritem;"
+    sql += " GROUP BY inv_empresa, inv_cod_item;"
 
-    with pyodbc.connect(sqlserver_conn_str()) as conn:
+    with psycopg2.connect(**POSTGRES) as conn:
         cur = conn.cursor()
         cur.execute(sql, params)
         filas = [(r[0], r[1], float(r[2]), float(r[3])) for r in cur.fetchall()]
 
-    log.info("Extraídas %s filas de SQL Server (corte %s: 1 año desde %s, 90d desde %s)",
+    log.info("Extraídas %s filas de core.hec_inventario (corte %s: 1 año desde %s, 90d desde %s)",
              len(filas), HOY, desde_1a, desde_90d)
     return filas
 
