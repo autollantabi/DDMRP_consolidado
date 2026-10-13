@@ -11,6 +11,8 @@ from psycopg2.extras import execute_values
 # config.py está en DDMRP/conection
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "conection"))
 from config import POSTGRES
+# bodegas de venta por empresa: las mismas que usa ddmrp_inventario.py para los días con stock
+from ddmrp_inventario import BODEGAS_POR_EMPRESA
 
 # ---------------------------------------------------------------------------
 # CONFIGURACIÓN
@@ -40,13 +42,12 @@ ID_CONSTANTE_Z = 14    # Z modificado = constante * (cantidad - mediana) / MADX
 LIMITE_VF_BAJO  = 0.5
 LIMITE_VF_MEDIO = 1
 
-# La ventana de días se parte en tramos de ~30 días contados hacia atrás desde hoy
-# (365 / 12 = 30,42 -> tramos de 30 y 31 días que cubren los 365 días exactos).
-# Cada tramo hace de "mes" para detectar picos y medir el CV.
+# CV: la venta diaria es intermitente (la mayoría de días es 0), así que la variabilidad se mide
+# en tramos de ~30 días contados hacia atrás desde hoy (365 / 12 = tramos de 30 y 31 días).
 N_TRAMOS           = 12
-MIN_TRAMOS_LIMPIOS = 3  # con menos tramos limpios el CV no se puede medir -> VF medio
+MIN_TRAMOS_LIMPIOS = 3  # con menos tramos el CV no se puede medir -> VF medio
 
-DIAS_ADU_60D = 60       # ADU60D: misma regla que el ADU, pero con los últimos 60 días
+DIAS_ADU_60D = 60       # ADU60D: misma fórmula que el ADU, pero con los últimos 60 días
 
 DECIMALES_Z = 2        # decimales con los que se redondea el Z modificado
 DECIMALES_DESV = 2     # decimales con los que se redondea desviacion_estandar
@@ -81,37 +82,19 @@ def leer_parametros():
 
 
 # ---------------------------------------------------------------------------
-# TRAMOS: la ventana de 'dias' días (hoy incluido) partida en N_TRAMOS tramos.
-#   días atrás d (0 = hoy, dias - 1 = el más antiguo) -> tramo = d * N_TRAMOS // dias
-#   tramo 0 = el más reciente (termina hoy), tramo N_TRAMOS - 1 = el más antiguo
-# Devuelve {tramo: (fecha inicio, número de días)}
-# ---------------------------------------------------------------------------
-def armar_tramos(hoy, dias):
-    tramos = {}
-    for d in range(dias):
-        t = d * N_TRAMOS // dias
-        _, n = tramos.get(t, (None, 0))
-        tramos[t] = (hoy - timedelta(days=d), n + 1)     # el último d del tramo es su fecha inicio
-    return tramos
-
-
-# ---------------------------------------------------------------------------
-# EXTRACCIÓN (PostgreSQL): venta por empresa + ítem + tramo de los últimos 'dias' días
+# EXTRACCIÓN 1 (PostgreSQL): venta POR DÍA por empresa + ítem de los últimos 'dias' días
 # Mismos filtros que core.vw_ddmrp_ventas: sin PPTO, solo mayoreo / B2B, sin clientes
 # relacionados (un vendedor que no está en dim_vendedores queda fuera, igual que en la vista).
-# La columna 'mes' guarda la fecha de inicio del tramo.
+# Una fila por día con movimiento (los días sin venta no tienen fila: cuentan como 0).
 # ---------------------------------------------------------------------------
 def extraer(dias):
     sql = """
         SELECT
             hv.hev_empresa,
             hv.hev_codigoitem,
-            (current_date - hv.hev_fechadocumento::date) * %(n)s / %(dias)s AS tramo,
-            ROUND(SUM(hv.hev_cantidad))::integer                            AS cantidad,
-            current_date                                                    AS fecha_subida,
-            -- parte de la venta del tramo que cae en los últimos DIAS_ADU_60D días (para el ADU60D)
-            ROUND(COALESCE(SUM(hv.hev_cantidad) FILTER (
-                WHERE hv.hev_fechadocumento::date > current_date - %(dias60)s), 0))::integer AS cantidad_60d
+            hv.hev_fechadocumento::date               AS fecha,
+            ROUND(SUM(hv.hev_cantidad))::integer      AS cantidad,
+            current_date                              AS fecha_subida
         FROM core.hec_ventas hv
         JOIN core.dim_vendedores dve
             ON dve.dve_codigo = hv.hev_vendedor_asignado
@@ -121,7 +104,7 @@ def extraer(dias):
           AND dve.dve_categoria = ANY(%(categorias)s)
           AND hv.hev_cuentasocio NOT LIKE ALL(%(clientes)s)
     """
-    params = {"n": N_TRAMOS, "dias": dias, "dias60": DIAS_ADU_60D,
+    params = {"dias": dias,
               "categorias": CATEGORIAS_VENDEDOR,
               "clientes": ["%" + ruc for ruc in CLIENTES_EXCLUIDOS]}   # termina en el RUC
 
@@ -133,8 +116,8 @@ def extraer(dias):
         params["item"] = FILTRO_ITEM
 
     sql += """
-        GROUP BY hv.hev_empresa, hv.hev_codigoitem, 3
-        ORDER BY hv.hev_empresa, hv.hev_codigoitem, 3 DESC;
+        GROUP BY hv.hev_empresa, hv.hev_codigoitem, hv.hev_fechadocumento::date
+        ORDER BY hv.hev_empresa, hv.hev_codigoitem, 3;
     """
 
     with psycopg2.connect(**POSTGRES) as conn:
@@ -142,26 +125,56 @@ def extraer(dias):
         cur.execute("SELECT current_date")
         hoy = cur.fetchone()[0]
         cur.execute(sql, params)
-        datos = cur.fetchall()
+        filas = cur.fetchall()
 
-    tramos = armar_tramos(hoy, dias)
-    # tramo -> fecha de inicio del tramo (columna 'mes')
-    columnas = ["hev_empresa", "hev_codigoitem", "mes", "cantidad", "fecha_subida"]
-    filas = [(emp, item, tramos[t][0], cant, fsub) for emp, item, t, cant, fsub, _ in datos]
-    # ADU60D: venta de los últimos 60 días por empresa + ítem + tramo
-    venta_60d = {(emp, item, t): c60 for emp, item, t, _, _, c60 in datos}
-
-    log.info("Extraídas %s filas de core.hec_ventas (últimos %s días hasta %s, %s tramos)",
-             len(filas), dias, hoy, N_TRAMOS)
-    return columnas, filas, tramos, venta_60d
+    columnas = ["hev_empresa", "hev_codigoitem", "fecha", "cantidad", "fecha_subida"]
+    log.info("Extraídas %s filas (ítem + día) de core.hec_ventas (últimos %s días hasta %s)",
+             len(filas), dias, hoy)
+    return columnas, filas, hoy
 
 
 # ---------------------------------------------------------------------------
-# CÁLCULO por empresa + ítem (cada fila es un tramo):
+# EXTRACCIÓN 2 (PostgreSQL): días CON inventario por empresa + ítem (core.hec_inventario, misma
+# ventana). Un día cuenta si el ítem tuvo stock > 0 en al menos una bodega de venta (misma regla
+# que ddmrp_inventario.py). inv_id viene con prefijo (AU_2000487), igual que hev_codigoitem.
+# Devuelve {(empresa, ítem): set(fechas con inventario)}
+# ---------------------------------------------------------------------------
+def extraer_dias_stock(dias):
+    bodegas = tuple((empresa, codigo) for empresa, codigos in BODEGAS_POR_EMPRESA.items()
+                    for codigo in codigos)
+    sql = """
+        SELECT inv_empresa, inv_id, array_agg(DISTINCT inv_fecha_subida::date)
+        FROM core.hec_inventario
+        WHERE inv_fecha_subida::date >  current_date - %(dias)s
+          AND inv_fecha_subida::date <= current_date
+          AND inv_stock > 0
+          AND (inv_empresa, inv_codigo_bodega) IN %(bodegas)s
+    """
+    params = {"dias": dias, "bodegas": bodegas}
+    if FILTRO_EMPRESA:
+        sql += " AND inv_empresa = %(empresa)s"
+        params["empresa"] = FILTRO_EMPRESA
+    if FILTRO_ITEM:
+        sql += " AND inv_id = %(item)s"
+        params["item"] = FILTRO_ITEM
+    sql += " GROUP BY 1, 2"
+
+    with psycopg2.connect(**POSTGRES) as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        stock = {(e, i): set(fechas) for e, i, fechas in cur.fetchall()}
+
+    log.info("Días con inventario leídos de core.hec_inventario: %s ítems", len(stock))
+    return stock
+
+
+# ---------------------------------------------------------------------------
+# PICOS POR DÍA, por empresa + ítem (cada fila es un día con venta):
 #   desv_mediana = |cantidad - mediana|              (=ABS(C36-MEDX))
 #   z_modificado = constante_z * (cantidad - mediana) / MADX  (=0,6745*(C36-MEDX)/MADX)
 #   es_pico      = "SI" si |z_modificado| > umbral_pico   (=SI(ABS(E36)>ZTHR;"SI";"NO"))
 #   demanda_adu  = cantidad si no es pico, si no 0        (=SI(F36="NO";C36;"0"))
+#   La mediana y el MAD son los de los días con venta del ítem.
 # ---------------------------------------------------------------------------
 def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
     i_cant = columnas.index("cantidad")
@@ -191,66 +204,64 @@ def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
 
 
 # ---------------------------------------------------------------------------
-# ADU, CV y VF por empresa + ítem (se repiten en todas las filas del SKU).
-# Serie del SKU: tramos desde el más reciente (termina hoy) hasta el más antiguo con venta
-#   (si el ítem es nuevo, empieza en el tramo de su primera venta)
-#   - los tramos sin venta cuentan como 0
-#   - se quitan los picos ALTOS (es_pico = "SI" y cantidad sobre la mediana, z_modificado > 0):
-#     se quitan su venta Y sus días
-# ADU                 = venta de la serie / días de la serie   (u/día; 0 si sale negativo)
-#                       sin picos: dias = 365; con picos altos: 365 - días de esos tramos
-# desviacion_estandar = CV = stdev(venta diaria por tramo) / promedio(venta diaria por tramo)
-#                       (venta diaria del tramo = cantidad / días del tramo; tramos de 30 y 31 días)
-# VF = CV * factor del tramo de CV:
-#   CV <= 0.5        -> CV * 0.2 (VF bajo)
-#   0.5 < CV <= 1    -> CV * 0.4 (VF medio)
-#   CV > 1           -> CV * 0.6 (VF alto)
-#   no medible (menos de 3 tramos limpios o promedio <= 0) -> VF = 0.40, CV = 0
-# ADU60D              = misma regla que el ADU, pero solo con los últimos 60 días:
-#                       venta de esos 60 días fuera de tramos con pico alto
-#                       / días de esos 60 que caen en tramos sin pico alto
-#                       (los 60 días caen en los tramos 0 y 1; si el ítem es nuevo, desde su primer tramo)
+# ADU, ADU60D, CV y VF por empresa + ítem (se repiten en todas las filas del SKU).
+# Días pico = días con pico ALTO (es_pico = "SI" y cantidad sobre la mediana, z_modificado > 0).
+#
+# ADU = (ventas - ventas de los días pico) / (días del año - días pico - días sin inventario)
+#       días sin inventario: sin stock > 0 en ninguna bodega de venta (core.hec_inventario);
+#       un día que es pico y además sin inventario se descuenta una sola vez.
+#       Si el ítem vendió pero no tiene ningún día con inventario registrado, se divide entre los
+#       días calendario desde su primera venta, sin los días pico.  (u/día; 0 si sale negativo)
+# ADU60D = misma fórmula con los últimos 60 días.
+#
+# CV (desviacion_estandar) y VF: en N_TRAMOS tramos de ~30 días desde el tramo de la primera venta;
+#   venta diaria del tramo = venta del tramo sin días pico / días del tramo sin días pico.
+#   CV = stdev / promedio de esas ventas diarias.
+#   VF = CV * factor: CV <= 0.5 -> 0.2 | 0.5 < CV <= 1 -> 0.4 | CV > 1 -> 0.6
+#   no medible (menos de 3 tramos o promedio <= 0) -> VF = 0.40, CV = 0
 # ---------------------------------------------------------------------------
-def agregar_adu_vf(columnas, filas, tramos, venta_60d, factores_vf):
+def agregar_adu_vf(columnas, filas, hoy, dias, stock, factores_vf):
     bajo, medio, alto = factores_vf
-    i_mes  = columnas.index("mes")
-    i_cant = columnas.index("cantidad")
-    i_pico = columnas.index("es_pico")
-    i_z    = columnas.index("z_modificado")
+    i_fecha = columnas.index("fecha")
+    i_cant  = columnas.index("cantidad")
+    i_pico  = columnas.index("es_pico")
+    i_z     = columnas.index("z_modificado")
 
-    tramo_de = {inicio: t for t, (inicio, _) in tramos.items()}   # fecha inicio -> tramo
-    dias_ventana = sum(n for _, n in tramos.values())
-    # días de cada tramo que caen dentro de los últimos 60 días (d = 0 es hoy)
-    dias_60d = defaultdict(int)
-    for d in range(DIAS_ADU_60D):
-        dias_60d[d * N_TRAMOS // dias_ventana] += 1
-
-    tramo_mas_antiguo = {}
-    ventas = defaultdict(dict)                         # sku -> {tramo: cantidad, o None si es pico alto}
+    ventas = defaultdict(dict)                          # sku -> {días atrás: (cantidad, pico alto)}
     for f in filas:
-        sku = (f[0], f[1])
-        t = tramo_de[f[i_mes]]
-        tramo_mas_antiguo[sku] = max(tramo_mas_antiguo.get(sku, t), t)
-        pico_alto = f[i_pico] == "SI" and f[i_z] > 0
-        ventas[sku][t] = None if pico_alto else f[i_cant]
+        d = (hoy - f[i_fecha]).days                     # 0 = hoy, dias - 1 = el más antiguo
+        ventas[(f[0], f[1])][d] = (f[i_cant], f[i_pico] == "SI" and f[i_z] > 0)
 
     calculos = {}
-    for sku, por_tramo in ventas.items():
-        # serie: (cantidad, días) de cada tramo limpio, desde el tramo 0 hasta el más antiguo con venta
-        serie = []
-        for t in range(tramo_mas_antiguo[sku] + 1):
-            cantidad = por_tramo.get(t, 0)             # tramo sin venta = 0
-            if cantidad is not None:                   # None = pico alto: se quitan venta y días
-                serie.append((cantidad, tramos[t][1]))
+    sin_inventario = 0
+    for sku, por_dia in ventas.items():
+        con_stock = {(hoy - fecha).days for fecha in stock.get(sku, ())}
+        pico = {d for d, (_, es) in por_dia.items() if es}
+        primer_dia = max(por_dia)                       # días atrás de la primera venta en la ventana
 
-        total_cant = sum(c for c, _ in serie)
-        total_dias = sum(d for _, d in serie)
-        adu = max(total_cant / total_dias, 0) if total_dias else 0
+        def adu_ventana(n_dias):
+            """(ventas - ventas pico) / (n_dias - días pico - días sin inventario) en los últimos n_dias."""
+            venta = sum(c for d, (c, es) in por_dia.items() if d < n_dias and not es)
+            validos = sum(1 for d in range(n_dias) if d not in pico and d in con_stock)
+            if validos:
+                return max(venta / validos, 0), True
+            # sin inventario registrado: días calendario desde la primera venta, sin días pico
+            calendario = sum(1 for d in range(min(n_dias, primer_dia + 1)) if d not in pico)
+            return (max(venta / calendario, 0) if calendario else 0), False
 
-        diarias = [c / d for c, d in serie]            # venta diaria de cada tramo
+        adu, con_inv = adu_ventana(dias)
+        sin_inventario += not con_inv
+        adu_60d, _ = adu_ventana(DIAS_ADU_60D)
+
+        # CV en tramos de ~30 días, desde el tramo de la primera venta, sin los días pico
+        tramo_primero = primer_dia * N_TRAMOS // dias
+        diarias = []
+        for t in range(tramo_primero + 1):
+            dias_t = [d for d in range(dias) if d * N_TRAMOS // dias == t and d not in pico]
+            if dias_t:
+                diarias.append(sum(por_dia[d][0] for d in dias_t if d in por_dia) / len(dias_t))
         promedio = mean(diarias) if diarias else 0
         if len(diarias) >= MIN_TRAMOS_LIMPIOS and promedio > 0:
-            # CV = desviación estándar / promedio (misma serie; la unidad se cancela)
             cv = stdev(diarias) / promedio
             if cv <= LIMITE_VF_BAJO:
                 factor = bajo
@@ -262,34 +273,36 @@ def agregar_adu_vf(columnas, filas, tramos, venta_60d, factores_vf):
         else:
             cv, vf = 0, medio                          # CV no medible -> VF = 0.40
 
-        # ADU60D: tramos que tocan los últimos 60 días, sin los de pico alto (venta y días)
-        cant_60 = dias_60 = 0
-        for t, n in dias_60d.items():
-            if t <= tramo_mas_antiguo[sku] and por_tramo.get(t, 0) is not None:
-                cant_60 += venta_60d.get((sku[0], sku[1], t), 0)
-                dias_60 += n
-        adu_60d = max(cant_60 / dias_60, 0) if dias_60 else 0
+        calculos[sku] = (con_stock, round(cv, DECIMALES_DESV), vf, round(adu, 2), round(adu_60d, 2))
 
-        calculos[sku] = (round(cv, DECIMALES_DESV), vf, round(adu, 2), round(adu_60d, 2))
+    if sin_inventario:
+        log.info("ADU: %s ítems con venta sin ningún día con inventario -> divididos entre días calendario",
+                 sin_inventario)
 
-    return (columnas + ["desviacion_estandar", "VF", "ADU", "ADU60D"],
-            [f + calculos[(f[0], f[1])] for f in filas])
+    nuevas = []
+    for f in filas:
+        con_stock, cv, vf, adu, adu_60d = calculos[(f[0], f[1])]
+        hay_stock = "SI" if (hoy - f[i_fecha]).days in con_stock else "NO"
+        nuevas.append(f + (hay_stock, cv, vf, adu, adu_60d))
+    return columnas + ["con_stock", "desviacion_estandar", "VF", "ADU", "ADU60D"], nuevas
 
 
 # ---------------------------------------------------------------------------
 # CARGA (PostgreSQL): crea la tabla si no existe, borra sus registros e inserta
+# Una fila por empresa + ítem + día con venta.
 # ---------------------------------------------------------------------------
 CREATE = f"""
 CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
     hev_empresa          varchar,
     hev_codigoitem       varchar,
-    mes                  date,
+    fecha                date,
     cantidad             integer,
     desv_mediana         numeric,
     z_modificado         numeric,
     es_pico              varchar(2),
     demanda_adu          integer,
     fecha_subida         date,
+    con_stock            varchar(2),
     desviacion_estandar  numeric,
     "VF"                 numeric,
     "ADU"                numeric,
@@ -297,12 +310,13 @@ CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
 )
 """
 
-# Si la tabla ya existía sin las columnas: CREATE TABLE IF NOT EXISTS no agrega columnas.
-# El ADU_90 ya no se usa: se borra la columna si existe.
+# Si la tabla ya existía con la estructura anterior (por tramo, columna 'mes'): CREATE TABLE IF
+# NOT EXISTS no la cambia; se agregan las columnas nuevas y se quitan las que ya no se usan.
 ALTER = (f"ALTER TABLE {PG_SCHEMA}.{PG_TABLA} "
+         f'ADD COLUMN IF NOT EXISTS fecha date, ADD COLUMN IF NOT EXISTS con_stock varchar(2), '
          f'ADD COLUMN IF NOT EXISTS desviacion_estandar numeric, ADD COLUMN IF NOT EXISTS "VF" numeric, '
          f'ADD COLUMN IF NOT EXISTS "ADU" numeric, ADD COLUMN IF NOT EXISTS "ADU60D" numeric, '
-         f'DROP COLUMN IF EXISTS "ADU_90"')
+         f'DROP COLUMN IF EXISTS mes, DROP COLUMN IF EXISTS "ADU_90"')
 
 
 def cargar(columnas, filas):
@@ -325,9 +339,10 @@ def cargar(columnas, filas):
 
 def ejecutar():
     dias, umbral_pico, constante_z, factores_vf = leer_parametros()
-    columnas, filas, tramos, venta_60d = extraer(dias)
+    columnas, filas, hoy = extraer(dias)
+    stock = extraer_dias_stock(dias)
     columnas, filas = agregar_desv_mediana(columnas, filas, umbral_pico, constante_z)
-    cargar(*agregar_adu_vf(columnas, filas, tramos, venta_60d, factores_vf))
+    cargar(*agregar_adu_vf(columnas, filas, hoy, dias, stock, factores_vf))
 
 
 # ---------------------------------------------------------------------------
@@ -335,5 +350,5 @@ if __name__ == "__main__":
     try:
         ejecutar()
     except Exception:
-        log.exception("Error al cargar ventas mensuales")
+        log.exception("Error al cargar ventas diarias")
         raise
