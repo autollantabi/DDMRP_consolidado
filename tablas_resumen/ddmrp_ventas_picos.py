@@ -11,8 +11,6 @@ from psycopg2.extras import execute_values
 # config.py está en DDMRP/conection
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "conection"))
 from config import POSTGRES
-# bodegas de venta por empresa: las mismas que usa ddmrp_inventario.py para los días con stock
-from ddmrp_inventario import BODEGAS_POR_EMPRESA
 
 # ---------------------------------------------------------------------------
 # CONFIGURACIÓN
@@ -46,8 +44,6 @@ LIMITE_VF_MEDIO = 1
 # en tramos de ~30 días contados hacia atrás desde hoy (365 / 12 = tramos de 30 y 31 días).
 N_TRAMOS           = 12
 MIN_TRAMOS_LIMPIOS = 3  # con menos tramos el CV no se puede medir -> VF medio
-
-DIAS_ADU_60D = 60       # ADU60D: misma fórmula que el ADU, pero con los últimos 60 días
 
 DECIMALES_Z = 2        # decimales con los que se redondea el Z modificado
 DECIMALES_DESV = 2     # decimales con los que se redondea desviacion_estandar
@@ -134,38 +130,26 @@ def extraer(dias):
 
 
 # ---------------------------------------------------------------------------
-# EXTRACCIÓN 2 (PostgreSQL): días CON inventario por empresa + ítem (core.hec_inventario, misma
-# ventana). Un día cuenta si el ítem tuvo stock > 0 en al menos una bodega de venta (misma regla
-# que ddmrp_inventario.py). inv_id viene con prefijo (AU_2000487), igual que hev_codigoitem.
-# Devuelve {(empresa, ítem): set(fechas con inventario)}
+# EXTRACCIÓN 2 (PostgreSQL): días CON inventario por empresa + ítem, de core.ddmrp_inventario
+# (la carga ddmrp_inventario.py, que corre antes en el master: días del último año con stock > 0
+# en alguna bodega de venta).
+# ddmrp_item viene SIN prefijo (2001408) y hev_codigoitem CON prefijo (IK_2001408): se cruza por
+# empresa + código sin el prefijo (con la empresa en la llave no se mezclan productos).
+# Devuelve {(empresa, código sin prefijo): días con stock en el año}
 # ---------------------------------------------------------------------------
-def extraer_dias_stock(dias):
-    bodegas = tuple((empresa, codigo) for empresa, codigos in BODEGAS_POR_EMPRESA.items()
-                    for codigo in codigos)
-    sql = """
-        SELECT inv_empresa, inv_id, array_agg(DISTINCT inv_fecha_subida::date)
-        FROM core.hec_inventario
-        WHERE inv_fecha_subida::date >  current_date - %(dias)s
-          AND inv_fecha_subida::date <= current_date
-          AND inv_stock > 0
-          AND (inv_empresa, inv_codigo_bodega) IN %(bodegas)s
-    """
-    params = {"dias": dias, "bodegas": bodegas}
-    if FILTRO_EMPRESA:
-        sql += " AND inv_empresa = %(empresa)s"
-        params["empresa"] = FILTRO_EMPRESA
-    if FILTRO_ITEM:
-        sql += " AND inv_id = %(item)s"
-        params["item"] = FILTRO_ITEM
-    sql += " GROUP BY 1, 2"
-
+def extraer_dias_stock():
     with psycopg2.connect(**POSTGRES) as conn:
         cur = conn.cursor()
-        cur.execute(sql, params)
-        stock = {(e, i): set(fechas) for e, i, fechas in cur.fetchall()}
+        cur.execute("SELECT ddmpr_empresa, ddmrp_item, ddmrp_stock_inv_1anio FROM core.ddmrp_inventario")
+        stock = {(e, i): int(d or 0) for e, i, d in cur.fetchall()}
 
-    log.info("Días con inventario leídos de core.hec_inventario: %s ítems", len(stock))
+    log.info("Días con inventario leídos de core.ddmrp_inventario: %s ítems", len(stock))
     return stock
+
+
+def sin_prefijo(codigo):
+    """IK_2001408 -> 2001408 (el código de core.ddmrp_inventario)."""
+    return codigo.split("_", 1)[1] if "_" in codigo else codigo
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +157,7 @@ def extraer_dias_stock(dias):
 #   desv_mediana = |cantidad - mediana|              (=ABS(C36-MEDX))
 #   z_modificado = constante_z * (cantidad - mediana) / MADX  (=0,6745*(C36-MEDX)/MADX)
 #   es_pico      = "SI" si |z_modificado| > umbral_pico   (=SI(ABS(E36)>ZTHR;"SI";"NO"))
-#   demanda_adu  = cantidad si no es pico, si no 0        (=SI(F36="NO";C36;"0"))
+#   demanda_adu  = 0 si es pico ALTO (es_pico = "SI" y z > 0), si no cantidad (los negativos restan)
 #   La mediana y el MAD son los de los días con venta del ítem.
 # ---------------------------------------------------------------------------
 def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
@@ -197,22 +181,24 @@ def agregar_desv_mediana(columnas, filas, umbral_pico, constante_z):
         # se compara con el Z sin redondear, como en Excel
         es_pico = "SI" if abs(z) > umbral_pico else "NO"
         z_red = round(z, DECIMALES_Z)
-        # demanda para ADU: excluye los picos (se ponen en 0)
-        demanda_adu = f[i_cant] if es_pico == "NO" else 0
+        # demanda para ADU: excluye solo los picos ALTOS (se ponen en 0); los picos bajos
+        # (devoluciones / negativos) se quedan y restan, igual que en el ADU sin picos
+        demanda_adu = 0 if es_pico == "SI" and z > 0 else f[i_cant]
         nuevas.append(f[:i_cant + 1] + (abs(dif), z_red, es_pico, demanda_adu) + f[i_cant + 1:])
     return columnas, nuevas
 
 
 # ---------------------------------------------------------------------------
-# ADU, ADU60D, CV y VF por empresa + ítem (se repiten en todas las filas del SKU).
+# ADU, CV y VF por empresa + ítem (se repiten en todas las filas del SKU).
 # Días pico = días con pico ALTO (es_pico = "SI" y cantidad sobre la mediana, z_modificado > 0).
 #
-# ADU = (ventas - ventas de los días pico) / (días del año - días pico - días sin inventario)
-#       días sin inventario: sin stock > 0 en ninguna bodega de venta (core.hec_inventario);
-#       un día que es pico y además sin inventario se descuenta una sola vez.
+# ADU_SIN_PICOS = (ventas - ventas de los días pico) / (días del año - días sin inventario)
+#       el divisor son los días CON inventario (core.ddmrp_inventario.ddmrp_stock_inv_1anio);
+#       ej.: 300 días con inventario -> 365 - 65 sin inventario = 300. Los días pico NO se restan.
 #       Si el ítem vendió pero no tiene ningún día con inventario registrado, se divide entre los
-#       días calendario desde su primera venta, sin los días pico.  (u/día; 0 si sale negativo)
-# ADU60D = misma fórmula con los últimos 60 días.
+#       días calendario desde su primera venta.  (u/día; 0 si sale negativo)
+#       Es el ADU que usa el master (zonas, pedido).
+# ADU_CON_PICOS = mismo cálculo pero con TODAS las ventas (sin quitar los picos). Solo referencia.
 #
 # CV (desviacion_estandar) y VF: en N_TRAMOS tramos de ~30 días desde el tramo de la primera venta;
 #   venta diaria del tramo = venta del tramo sin días pico / días del tramo sin días pico.
@@ -235,23 +221,21 @@ def agregar_adu_vf(columnas, filas, hoy, dias, stock, factores_vf):
     calculos = {}
     sin_inventario = 0
     for sku, por_dia in ventas.items():
-        con_stock = {(hoy - fecha).days for fecha in stock.get(sku, ())}
+        dias_inv = stock.get((sku[0], sin_prefijo(sku[1])), 0)   # días con inventario en el año
         pico = {d for d, (_, es) in por_dia.items() if es}
         primer_dia = max(por_dia)                       # días atrás de la primera venta en la ventana
 
-        def adu_ventana(n_dias):
-            """(ventas - ventas pico) / (n_dias - días pico - días sin inventario) en los últimos n_dias."""
-            venta = sum(c for d, (c, es) in por_dia.items() if d < n_dias and not es)
-            validos = sum(1 for d in range(n_dias) if d not in pico and d in con_stock)
-            if validos:
-                return max(venta / validos, 0), True
-            # sin inventario registrado: días calendario desde la primera venta, sin días pico
-            calendario = sum(1 for d in range(min(n_dias, primer_dia + 1)) if d not in pico)
-            return (max(venta / calendario, 0) if calendario else 0), False
-
-        adu, con_inv = adu_ventana(dias)
-        sin_inventario += not con_inv
-        adu_60d, _ = adu_ventana(DIAS_ADU_60D)
+        # ADU = ventas / días con inventario (365 - días sin inventario)
+        venta_sin_picos = sum(c for c, es in por_dia.values() if not es)   # sin las ventas pico
+        venta_con_picos = sum(c for c, _ in por_dia.values())              # todas las ventas
+        if dias_inv:
+            divisor = dias_inv
+        else:
+            # sin inventario registrado: días calendario desde la primera venta
+            divisor = primer_dia + 1
+            sin_inventario += 1
+        adu = max(venta_sin_picos / divisor, 0)
+        adu_con_picos = max(venta_con_picos / divisor, 0)
 
         # CV en tramos de ~30 días, desde el tramo de la primera venta, sin los días pico
         tramo_primero = primer_dia * N_TRAMOS // dias
@@ -273,18 +257,14 @@ def agregar_adu_vf(columnas, filas, hoy, dias, stock, factores_vf):
         else:
             cv, vf = 0, medio                          # CV no medible -> VF = 0.40
 
-        calculos[sku] = (con_stock, round(cv, DECIMALES_DESV), vf, round(adu, 2), round(adu_60d, 2))
+        calculos[sku] = (dias_inv, round(cv, DECIMALES_DESV), vf, round(adu, 2), round(adu_con_picos, 2))
 
     if sin_inventario:
         log.info("ADU: %s ítems con venta sin ningún día con inventario -> divididos entre días calendario",
                  sin_inventario)
 
-    nuevas = []
-    for f in filas:
-        con_stock, cv, vf, adu, adu_60d = calculos[(f[0], f[1])]
-        hay_stock = "SI" if (hoy - f[i_fecha]).days in con_stock else "NO"
-        nuevas.append(f + (hay_stock, cv, vf, adu, adu_60d))
-    return columnas + ["con_stock", "desviacion_estandar", "VF", "ADU", "ADU60D"], nuevas
+    nuevas = [f + calculos[(f[0], f[1])] for f in filas]
+    return columnas + ["dias_inventario", "desviacion_estandar", "VF", "ADU_SIN_PICOS", "ADU_CON_PICOS"], nuevas
 
 
 # ---------------------------------------------------------------------------
@@ -302,21 +282,22 @@ CREATE TABLE IF NOT EXISTS {PG_SCHEMA}.{PG_TABLA} (
     es_pico              varchar(2),
     demanda_adu          integer,
     fecha_subida         date,
-    con_stock            varchar(2),
+    dias_inventario      integer,
     desviacion_estandar  numeric,
     "VF"                 numeric,
-    "ADU"                numeric,
-    "ADU60D"             numeric
+    "ADU_SIN_PICOS"      numeric,
+    "ADU_CON_PICOS"      numeric
 )
 """
 
 # Si la tabla ya existía con la estructura anterior (por tramo, columna 'mes'): CREATE TABLE IF
 # NOT EXISTS no la cambia; se agregan las columnas nuevas y se quitan las que ya no se usan.
 ALTER = (f"ALTER TABLE {PG_SCHEMA}.{PG_TABLA} "
-         f'ADD COLUMN IF NOT EXISTS fecha date, ADD COLUMN IF NOT EXISTS con_stock varchar(2), '
+         f'ADD COLUMN IF NOT EXISTS fecha date, ADD COLUMN IF NOT EXISTS dias_inventario integer, '
          f'ADD COLUMN IF NOT EXISTS desviacion_estandar numeric, ADD COLUMN IF NOT EXISTS "VF" numeric, '
-         f'ADD COLUMN IF NOT EXISTS "ADU" numeric, ADD COLUMN IF NOT EXISTS "ADU60D" numeric, '
-         f'DROP COLUMN IF EXISTS mes, DROP COLUMN IF EXISTS "ADU_90"')
+         f'ADD COLUMN IF NOT EXISTS "ADU_SIN_PICOS" numeric, ADD COLUMN IF NOT EXISTS "ADU_CON_PICOS" numeric, '
+         f'DROP COLUMN IF EXISTS mes, DROP COLUMN IF EXISTS "ADU_90", DROP COLUMN IF EXISTS con_stock, '
+         f'DROP COLUMN IF EXISTS "ADU60D", DROP COLUMN IF EXISTS "ADU"')
 
 
 def cargar(columnas, filas):
@@ -340,7 +321,7 @@ def cargar(columnas, filas):
 def ejecutar():
     dias, umbral_pico, constante_z, factores_vf = leer_parametros()
     columnas, filas, hoy = extraer(dias)
-    stock = extraer_dias_stock(dias)
+    stock = extraer_dias_stock()
     columnas, filas = agregar_desv_mediana(columnas, filas, umbral_pico, constante_z)
     cargar(*agregar_adu_vf(columnas, filas, hoy, dias, stock, factores_vf))
 

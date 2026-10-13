@@ -58,12 +58,12 @@ SQL_DDMRP = """
 SELECT
 	b.dit_empresa AS "EMPRESA",
 	b.dit_codigo AS "CODIGO_ITEM",
+    b.dit_codigoproveedor as "CODIGO PROVEEDOR",
+    NULL::varchar AS "COD. PROV1",
+    NULL::varchar AS "PROV1",
+    NULL::varchar AS "COD. PROV2",
+    NULL::varchar AS "PROV2",
 	b.dit_nombre AS "DESCRIPCION",
-    b.dit_codigoproveedor as "CODIGO_PROVEEDOR",
-	NULL::varchar AS "COD. PROV1",       -- se llenan con SQL_PROVEEDOR_ITEM
-	NULL::varchar AS "NOM. PROV1",
-	NULL::varchar AS "COD. PROV2",
-	NULL::varchar AS "NOM. PROV2",
 	b.dit_grupo AS "GRUPO",
     b.dit_propiedad AS "PROPIEDAD",
 	b.dit_rin as "RIN",
@@ -72,26 +72,28 @@ SELECT
 	b.dit_nombrefabricante AS "MARCA",
 	b.dit_codigobarras AS "BARRAS",
 	b.dit_disenio AS "DISEÑO",
-    b.dit_antiguedad AS "ANTIGUEDAD",
+    b.dit_antiguedad AS "ANT.",
 	'NO'::text AS "TOP",
-	f.segmento_final AS "CLUSTER",
+	f.segmento_final AS "CLASIF. PARETO",
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
-	ROUND(a."365D"::numeric, 2) AS "VTAS_1_AÑO",
-	ROUND(a.max_cantidad_anio::numeric, 2) AS "VENTAS MES PICO",
-	a.supera_umbral AS "DIF PICO VTAS ULT AÑO VS # VTAS ULT AÑO",
+	ROUND(a."365D"::numeric, 2) AS "UN (#) - AÑO",
+	ROUND(a.max_cantidad_anio::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
+	a.supera_umbral AS "DIF. MAX AÑO vs TOT. AÑO",
 	ROUND(c.ddmrp_stock_inv_1anio::numeric, 2) AS "DIAS INV 1 AÑO",
-	0::numeric AS "DEMANDA MES 1 AÑO",   -- se llena con SQL_DEMANDA_MES_1ANIO
-	ROUND(a."90D"::numeric, 2) AS "VENTA 90D",
+	0::numeric AS "DEMANDA MES - AÑO",   -- se llena con SQL_DEMANDA_MES_1ANIO
+	ROUND(a."90D"::numeric, 2) AS "UN (#) - 90D",
 	ROUND(c."ddmrp_stock_inv_90D"::numeric, 2) AS "DIAS INV 90D",
 	0::numeric AS "DEMANDA MES 90D",     -- se llena con SQL_DEMANDA_MES_90D
-	0::numeric AS "% VAR DEMANDA",       -- se llena con SQL_VAR_DEMANDA
-	ROUND(a."MES"::numeric, 2) AS "VENTAS MES ACTUAL",
+	0::numeric AS "% VARIACIÓN DEMANDA",       -- se llena con SQL_VAR_DEMANDA
+	ROUND(a."MES"::numeric, 2) AS "UNIDADES MES ACTUAL",
 	--ROUND(d.sum::numeric, 2) AS "EN STOCK",
     CASE
         WHEN ROUND(d.sum::numeric, 2) < 4   THEN 0
         ELSE ROUND(d.sum::numeric, 2)
     END AS "EN STOCK",
+    ROUND((COALESCE(e."Transito15D", 0) + COALESCE(e."Transito30D", 0)
+     + COALESCE(e."Transito45D", 0) + COALESCE(e."Transito>45D", 0))::numeric, 2) AS "TRANSITOS TOTAL",
     ROUND(e."Transito15D"::numeric, 2) AS "TRANSITO 15D",
 	ROUND(e."Transito30D"::numeric, 2) AS "TRANSITO 30D",
 	ROUND(e."Transito45D"::numeric, 2) AS "TRANSITO 45D",
@@ -105,7 +107,7 @@ SELECT
     ROUND(e."Backorder15D"::numeric, 2) AS "Backorders_15D",
     ROUND(e."Backorder30D"::numeric, 2) AS "Backorders_30D",
     ROUND(e."Backorder>30D"::numeric, 2) AS "Backorders>30D",
-	0::numeric AS "MES INV TOTAL",       -- se llena con SQL_MES_INV_TOTAL
+	0::numeric AS "MES INV TOTAL SEGUN DEMANDA 90D",       -- se llena con SQL_MES_INV_TOTAL
 	0::numeric AS "STOCK TOTAL",         -- se llena con SQL_STOCK_TOTAL
     0::numeric AS "STOCK PROYECTADO DLT",         -- se llena con SQL_STOCK_PROYECTADO_DLT
 	0::numeric AS "DLT",                 -- se llena con SQL_DLT
@@ -140,9 +142,7 @@ FROM core.ddmrp_medidas_top
 # ---------------------------------------------------------------------------
 SQL_STOCK_TOTAL = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "STOCK TOTAL" = ROUND(COALESCE("EN STOCK", 0) + COALESCE("TRANSITO 15D", 0) + COALESCE("TRANSITO 30D", 0)
-                          + COALESCE("TRANSITO 45D", 0) + COALESCE("TRANSITO >45D", 0)
-                          + COALESCE("PEDIDOS", 0) + COALESCE("BACKORDERS", 0), 2)
+SET "STOCK TOTAL" = ROUND(COALESCE("EN STOCK", 0) + COALESCE("TRANSITOS TOTAL", 0) + COALESCE("PEDIDOS", 0) + COALESCE("BACKORDERS", 0), 2)
 """
 
 # ---------------------------------------------------------------------------
@@ -155,44 +155,44 @@ SET "STOCK PROYECTADO DLT" = ROUND(COALESCE("STOCK TOTAL", 0) - ("DLT" * "ADU"),
 """
 
 # ---------------------------------------------------------------------------
-# DEMANDA MES 1 AÑO = VTAS_1_AÑO / DIAS INV 1 AÑO * 30   (0 si no hay días con stock)
-# DEMANDA MES 90D   = VENTA 90D  / DIAS INV 90D  * 30   (0 si no hay días con stock)
+# DEMANDA MES - AÑO = UN (#) - AÑO / DIAS INV 1 AÑO * 30   (0 si no hay días con stock)
+# DEMANDA MES 90D   = UN (#) - 90D / DIAS INV 90D  * 30   (0 si no hay días con stock)
 #   (se multiplica antes de dividir para no perder decimales)
 # ---------------------------------------------------------------------------
 SQL_DEMANDA_MES_1ANIO = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "DEMANDA MES 1 AÑO" = ROUND(COALESCE("VTAS_1_AÑO" * 30 / NULLIF("DIAS INV 1 AÑO", 0), 0), 2)
+SET "DEMANDA MES - AÑO" = ROUND(COALESCE("UN (#) - AÑO" * 30 / NULLIF("DIAS INV 1 AÑO", 0), 0), 2)
 """
 
 SQL_DEMANDA_MES_90D = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "DEMANDA MES 90D" = ROUND(COALESCE("VENTA 90D" * 30 / NULLIF("DIAS INV 90D", 0), 0), 2)
+SET "DEMANDA MES 90D" = ROUND(COALESCE("UN (#) - 90D" * 30 / NULLIF("DIAS INV 90D", 0), 0), 2)
 """
 
 # ---------------------------------------------------------------------------
-# % VAR DEMANDA = (demanda diaria 90D / demanda diaria 1 año - 1) * 100   (0 si no se puede calcular)
-#   demanda diaria 90D   = VENTA 90D  / DIAS INV 90D
-#   demanda diaria 1 año = VTAS_1_AÑO / DIAS INV 1 AÑO
+# % VARIACIÓN DEMANDA = (demanda diaria 90D / demanda diaria 1 año - 1) * 100   (0 si no se puede calcular)
+#   demanda diaria 90D   = UN (#) - 90D / DIAS INV 90D
+#   demanda diaria 1 año = UN (#) - AÑO / DIAS INV 1 AÑO
 # ---------------------------------------------------------------------------
 SQL_VAR_DEMANDA = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "% VAR DEMANDA" = ROUND(COALESCE(
-	("VENTA 90D" * NULLIF("DIAS INV 1 AÑO", 0) / NULLIF("DIAS INV 90D" * "VTAS_1_AÑO", 0) - 1) * 100
+SET "% VARIACIÓN DEMANDA" = ROUND(COALESCE(
+	("UN (#) - 90D" * NULLIF("DIAS INV 1 AÑO", 0) / NULLIF("DIAS INV 90D" * "UN (#) - AÑO", 0) - 1) * 100
 , 0), 2)
 """
 
 # ---------------------------------------------------------------------------
-# MES INV TOTAL = STOCK TOTAL / DEMANDA MES 90D
-#   (usa la demanda 90D sin redondear: VENTA 90D / DIAS INV 90D * 30)
+# MES INV TOTAL SEGUN DEMANDA 90D = STOCK TOTAL / DEMANDA MES 90D
+#   (usa la demanda 90D sin redondear: UN (#) - 90D / DIAS INV 90D * 30)
 #   - sin venta en 1 año NI en 90 días, y con stock -> 9999 (cobertura infinita: no hay con qué comparar)
 #   - en los demás casos sin demanda                -> 0
 # ---------------------------------------------------------------------------
 SQL_MES_INV_TOTAL = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "MES INV TOTAL" = CASE
-	WHEN COALESCE("VTAS_1_AÑO", 0) = 0 AND COALESCE("VENTA 90D", 0) = 0 AND "STOCK TOTAL" > 0 THEN 9999
+SET "MES INV TOTAL SEGUN DEMANDA 90D" = CASE
+	WHEN COALESCE("UN (#) - AÑO", 0) = 0 AND COALESCE("UN (#) - 90D", 0) = 0 AND "STOCK TOTAL" > 0 THEN 9999
 	ELSE ROUND(COALESCE(
-		"STOCK TOTAL" * NULLIF("DIAS INV 90D", 0) / NULLIF("VENTA 90D" * 30, 0)
+		"STOCK TOTAL" * NULLIF("DIAS INV 90D", 0) / NULLIF("UN (#) - 90D" * 30, 0)
 	, 0), 2)
 END
 """
@@ -303,17 +303,14 @@ WHERE "VF" = 0
 
 # ---------------------------------------------------------------------------
 # ADU (u/día) por ítem: ya viene calculado en ddmrp_ventas_picos
-#   (últimos 365 días, param 1, sin los tramos con pico alto ni sus días)
+#   (últimos 365 días, param 1, con las ventas de los días pico alto, entre los días con inventario)
+#   adu           -> columna "ADU" (con picos): la que usan todos los cálculos (zonas, TAMAÑO BUFFER, stock proyectado)
+#   adu_sin_picos -> columna "ADU SIN PICOS": solo se muestra
 # ---------------------------------------------------------------------------
 SQL_ADU = """
-SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU" AS adu
-FROM core.ddmrp_ventas_picos
-"""
-
-# ADU60D (u/día): misma regla que el ADU pero con los últimos 60 días. Solo se muestra,
-# no entra en ningún cálculo.
-SQL_ADU_60D = """
-SELECT DISTINCT hev_empresa, hev_codigoitem, "ADU60D" AS adu_60d
+SELECT DISTINCT hev_empresa, hev_codigoitem,
+       "ADU_CON_PICOS" AS adu,
+       "ADU_SIN_PICOS" AS adu_sin_picos
 FROM core.ddmrp_ventas_picos
 """
 
@@ -359,16 +356,16 @@ SET "ZONA ROJA SEGURIDAD" = ROUND("ZONA ROJA BASE" * "VF", 2)
 """
 
 # ---------------------------------------------------------------------------
-# TOR (Top of Red = zona roja total): TOR = ZONA ROJA BASE + ZONA ROJA SEGURIDAD
+# ZONA ROJA (TOR, Top of Red = zona roja total) = ZONA ROJA BASE + ZONA ROJA SEGURIDAD
 # ---------------------------------------------------------------------------
 SQL_TOR = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "TOR" = "ZONA ROJA BASE" + "ZONA ROJA SEGURIDAD"
+SET "ZONA ROJA" = "ZONA ROJA BASE" + "ZONA ROJA SEGURIDAD"
 """
 
 # ---------------------------------------------------------------------------
 # ZONA AMARILLA = ADU * DLT
-# TOY (Top of Yellow) = TOR + ZONA AMARILLA
+# LIMITE UNIDADES ZONA AMARILLA (TOY, Top of Yellow) = ZONA ROJA + ZONA AMARILLA
 # ---------------------------------------------------------------------------
 SQL_ZONA_AMARILLA = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
@@ -377,7 +374,7 @@ SET "ZONA AMARILLA" = ROUND("ADU" * "DLT", 2)
 
 SQL_TOY = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "TOY" = "TOR" + "ZONA AMARILLA"
+SET "LIMITE UNIDADES ZONA AMARILLA" = "ZONA ROJA" + "ZONA AMARILLA"
 """
 
 # ---------------------------------------------------------------------------
@@ -393,48 +390,58 @@ SET "ZONA VERDE" = GREATEST(
 """
 
 # ---------------------------------------------------------------------------
-# TOG (Top of Green) = TOY + ZONA VERDE
+# TAMAÑO BUFFER (TOG, Top of Green) = LIMITE UNIDADES ZONA AMARILLA + ZONA VERDE
 # ---------------------------------------------------------------------------
 SQL_TOG = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "TOG" = "TOY" + "ZONA VERDE"
+SET "TAMAÑO BUFFER" = "LIMITE UNIDADES ZONA AMARILLA" + "ZONA VERDE"
 """
 
 # ---------------------------------------------------------------------------
-# NFP (Net Flow Position) = Inventario disponible + Suministro abierto - Demanda calificada
+# FLUJO NETO (NFP, Net Flow Position) = STOCK TOTAL - (ADU * DLT)
 #   STOCK TOTAL ya es EN STOCK + tránsitos + pedidos + backorders (inventario + suministro abierto).
-#   Demanda calificada = 0 por ahora (pedidos abiertos de clientes: pendiente traerlos de SAP).
-#   Para cambiarla, reemplazar el "- 0" por la columna o consulta que corresponda.
+#   Se ejecuta después de cargar el ADU y el DLT.
 # ---------------------------------------------------------------------------
 SQL_NFP = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "NFP" = "STOCK TOTAL" - 0
+SET "FLUJO NETO" = "STOCK TOTAL" - ("ADU" * "DLT")
 """
 
 # ---------------------------------------------------------------------------
-# PEDIDO SUGERIDO: solo se pide si NFP <= TOY (regla de disparo)
-#   PEDIDO SUGERIDO = TOG - NFP   si NFP <= TOG
-#   PEDIDO SUGERIDO = 0           si NFP >  TOG
+# TAMAÑO PEDIDO: solo se pide si FLUJO NETO <= TAMAÑO BUFFER (regla de disparo)
+#   TAMAÑO PEDIDO = TAMAÑO BUFFER - FLUJO NETO   si FLUJO NETO <= TAMAÑO BUFFER
+#   TAMAÑO PEDIDO = 0                            si FLUJO NETO >  TAMAÑO BUFFER
 # ---------------------------------------------------------------------------
 SQL_PEDIDO_SUGERIDO = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "PEDIDO SUGERIDO" = CASE
-	WHEN "NFP" <= "TOG" THEN GREATEST("TOG" - "NFP", 0)
+SET "TAMAÑO PEDIDO" = CASE
+	WHEN "FLUJO NETO" <= "TAMAÑO BUFFER" THEN GREATEST("TAMAÑO BUFFER" - "FLUJO NETO", 0)
 	ELSE 0
 END
 """
 
 # ---------------------------------------------------------------------------
 # NUEVO TAMAÑO PEDIDO:
-#   0                 si MES INV TOTAL > 4
-#   PEDIDO SUGERIDO   en caso contrario
+#   0                 si MES INV TOTAL SEGUN DEMANDA 90D > 4
+#   TAMAÑO PEDIDO     en caso contrario, redondeado hacia arriba al número par
+#                     (CEIL(x / 2) * 2: 7 -> 8, 7.3 -> 8, 8 -> 8)
 # ---------------------------------------------------------------------------
 SQL_NUEVO_TAMANO_PEDIDO = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
 SET "NUEVO TAMAÑO PEDIDO" = CASE
-	WHEN "MES INV TOTAL" > 4 THEN 0
-	ELSE "PEDIDO SUGERIDO"
+	WHEN "MES INV TOTAL SEGUN DEMANDA 90D" > 4 THEN 0
+	ELSE CEIL("TAMAÑO PEDIDO" / 2) * 2
 END
+"""
+
+# ---------------------------------------------------------------------------
+# TAMAÑO 3 MESES INVENTARIO = ADU * 90 (unidades para cubrir 3 meses de demanda)
+# ---------------------------------------------------------------------------
+DIAS_3_MESES = 90
+
+SQL_TAMANO_3_MESES = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA}
+SET "TAMAÑO 3 MESES INVENTARIO" = ROUND("ADU" * {DIAS_3_MESES}, 2)
 """
 
 # ---------------------------------------------------------------------------
@@ -453,14 +460,14 @@ FROM core.dim_item
 
 # ---------------------------------------------------------------------------
 # P. LISTA VS ULT. COSTO (margen sobre el precio de lista, en %):
-#   (LISTA PRECIOS A - ULTIMO COSTO) / LISTA PRECIOS A * 100
+#   (P. LISTA - ULT. COSTO) / P. LISTA * 100
 #   - sin último costo se toma 0 (da 100 %)
 #   - precio de lista 0 o vacío: queda vacío (no se puede dividir)
 # ---------------------------------------------------------------------------
 SQL_PLISTA_VS_ULTCOSTO = f"""
 UPDATE {PG_SCHEMA}.{PG_TABLA}
-SET "P. LISTA VS ULT. COSTO" = ROUND(
-	("LISTA PRECIOS A" - COALESCE("ULTIMO COSTO", 0)) * 100 / NULLIF("LISTA PRECIOS A", 0)
+SET "P. LISTA VS ULT.COSTO" = ROUND(
+	("P. LISTA" - COALESCE("ULT. COSTO", 0)) * 100 / NULLIF("P. LISTA", 0)
 , 2)
 """
 
@@ -498,34 +505,38 @@ def cargar_ddmrp():
                 nombres = ", ".join('"' + nombre + '"' for nombre, _ in columnas)
                 # ADU se llena aparte (SQL_ADU); ítems sin venta quedan en 0
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU" numeric DEFAULT 0')
-                # ADU60D va al lado del ADU (SQL_ADU_60D); solo se muestra
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU60D" numeric DEFAULT 0')
-                # ADU_90 ya no se usa (las zonas van con el ADU): se borra la columna si existe
+                # ADU sin picos, al lado del ADU (SQL_ADU); solo se muestra
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ADU SIN PICOS" numeric DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} DROP COLUMN IF EXISTS "ADU CON PICOS"')
+                # ADU_90 y ADU60D ya no se usan (las zonas van con el ADU): se borran si existen
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} DROP COLUMN IF EXISTS "ADU_90"')
-                # zona roja y TOR se llenan aparte (SQL_ZONA_ROJA_BASE, SQL_ZONA_ROJA_SEGURIDAD, SQL_TOR)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} DROP COLUMN IF EXISTS "ADU60D"')
+                # zona roja base, seguridad y ZONA ROJA se llenan aparte (SQL_ZONA_ROJA_BASE, SQL_ZONA_ROJA_SEGURIDAD, SQL_TOR)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA BASE" numeric DEFAULT 0')
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA SEGURIDAD" numeric DEFAULT 0')
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TOR" numeric DEFAULT 0')
-                # zona amarilla y TOY se llenan aparte (SQL_ZONA_AMARILLA, SQL_TOY)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA ROJA" numeric DEFAULT 0')
+                # zona amarilla y LIMITE UNIDADES ZONA AMARILLA se llenan aparte (SQL_ZONA_AMARILLA, SQL_TOY)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA AMARILLA" numeric DEFAULT 0')
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TOY" numeric DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "LIMITE UNIDADES ZONA AMARILLA" numeric DEFAULT 0')
                 # zona verde se llena aparte (SQL_ZONA_VERDE)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ZONA VERDE" numeric DEFAULT 0')
-                # TOG se llena aparte (SQL_TOG)
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TOG" numeric DEFAULT 0')
-                # NFP y pedido sugerido se llenan aparte (SQL_NFP, SQL_PEDIDO_SUGERIDO)
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "NFP" numeric DEFAULT 0')
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "PEDIDO SUGERIDO" numeric DEFAULT 0')
+                # TAMAÑO BUFFER se llena aparte (SQL_TOG)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TAMAÑO BUFFER" numeric DEFAULT 0')
+                # FLUJO NETO y TAMAÑO PEDIDO se llenan aparte (SQL_NFP, SQL_PEDIDO_SUGERIDO)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "FLUJO NETO" numeric DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TAMAÑO PEDIDO" numeric DEFAULT 0')
                 # nuevo tamaño de pedido se llena aparte (SQL_NUEVO_TAMANO_PEDIDO)
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "NUEVO TAMAÑO PEDIDO" numeric DEFAULT 0')
+                # tamaño 3 meses de inventario se llena aparte (SQL_TAMANO_3_MESES)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "TAMAÑO 3 MESES INVENTARIO" numeric DEFAULT 0')
                 # costos y precio se llenan aparte (SQL_COSTOS), con 2 decimales
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ULTIMO FOB" numeric(20,2) DEFAULT 0')
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "COSTO PROMEDIO" numeric(20,2) DEFAULT 0')
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ULTIMO COSTO" numeric(20,2) DEFAULT 0')
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "LISTA PRECIOS A" numeric(20,2) DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "COSTO PROM" numeric(20,2) DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "ULT. COSTO" numeric(20,2) DEFAULT 0')
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "P. LISTA" numeric(20,2) DEFAULT 0')
                 # margen lista vs último costo se llena aparte (SQL_PLISTA_VS_ULTCOSTO)
-                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "P. LISTA VS ULT. COSTO" numeric(20,2)')
-                # COD./NOM. PROV1 y PROV2 vienen vacías en SQL_DDMRP (al lado de DESCRIPCION)
+                cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} ADD COLUMN IF NOT EXISTS "P. LISTA VS ULT.COSTO" numeric(20,2)')
+                # COD. PROV1, PROV1, COD. PROV2 y PROV2 vienen vacías en SQL_DDMRP
                 # y se llenan con SQL_PROVEEDOR_ITEM al final de la carga
                 # columnas de la versión anterior (lista separada por comas), ya no se usan
                 cur.execute(f'ALTER TABLE {PG_SCHEMA}.{PG_TABLA} DROP COLUMN IF EXISTS "COD_PROVEEDOR_IMP", '
@@ -580,19 +591,12 @@ def cargar_ddmrp():
                 # pega el ADU por empresa + código de ítem
                 cur.execute(f"""
                     UPDATE {PG_SCHEMA}.{PG_TABLA} d
-                    SET "ADU" = a.adu
+                    SET "ADU" = a.adu,
+                        "ADU SIN PICOS" = a.adu_sin_picos
                     FROM ({SQL_ADU}) a
                     WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
                 """)
                 log.info("ADU actualizado en %s ítems", cur.rowcount)
-                # pega el ADU60D por empresa + código de ítem (solo se muestra)
-                cur.execute(f"""
-                    UPDATE {PG_SCHEMA}.{PG_TABLA} d
-                    SET "ADU60D" = a.adu_60d
-                    FROM ({SQL_ADU_60D}) a
-                    WHERE d."EMPRESA" = a.hev_empresa AND d."CODIGO_ITEM" = a.hev_codigoitem
-                """)
-                log.info("ADU60D actualizado en %s ítems", cur.rowcount)
                 # stock proyectado al DLT (usa STOCK TOTAL, DLT y ADU ya cargados)
                 cur.execute(SQL_STOCK_PROYECTADO_DLT)
                 # LTF según el tramo del DLT de cada ítem
@@ -600,42 +604,44 @@ def cargar_ddmrp():
                 # LTF por defecto (0.20) donde quedó en 0
                 cur.execute(SQL_LTF_DEFAULT)
                 log.info("LTF por defecto (0.20) en %s ítems", cur.rowcount)
-                # zona roja (con ADU, DLT, LTF y VF ya cargados) y luego el TOR
+                # zona roja base y seguridad (con ADU, DLT, LTF y VF ya cargados) y luego ZONA ROJA
                 cur.execute(SQL_ZONA_ROJA_BASE)
                 cur.execute(SQL_ZONA_ROJA_SEGURIDAD)
                 cur.execute(SQL_TOR)
-                # zona amarilla y luego el TOY (usa el TOR)
+                # zona amarilla y luego LIMITE UNIDADES ZONA AMARILLA (usa ZONA ROJA)
                 cur.execute(SQL_ZONA_AMARILLA)
                 cur.execute(SQL_TOY)
                 # zona verde (usa ADU y ZONA ROJA BASE)
                 cur.execute(SQL_ZONA_VERDE)
-                # TOG (usa TOY y ZONA VERDE)
+                # TAMAÑO BUFFER (usa LIMITE UNIDADES ZONA AMARILLA y ZONA VERDE)
                 cur.execute(SQL_TOG)
-                # NFP y luego el pedido sugerido (usa NFP, TOY y TOG)
+                # FLUJO NETO y luego TAMAÑO PEDIDO (usa FLUJO NETO y TAMAÑO BUFFER)
                 cur.execute(SQL_NFP)
                 cur.execute(SQL_PEDIDO_SUGERIDO)
-                # nuevo tamaño de pedido (usa MES INV TOTAL y PEDIDO SUGERIDO)
+                # nuevo tamaño de pedido (usa MES INV TOTAL SEGUN DEMANDA 90D y TAMAÑO PEDIDO)
                 cur.execute(SQL_NUEVO_TAMANO_PEDIDO)
+                # tamaño 3 meses de inventario (usa ADU)
+                cur.execute(SQL_TAMANO_3_MESES)
                 # pega costos y precio por empresa + código de ítem
                 cur.execute(f"""
                     UPDATE {PG_SCHEMA}.{PG_TABLA} d
                     SET "ULTIMO FOB"      = x.ultimo_fob,
-                        "COSTO PROMEDIO"  = x.costo_promedio,
-                        "ULTIMO COSTO"    = x.ultimo_costo,
-                        "LISTA PRECIOS A" = x.lista_precios_a
+                        "COSTO PROM"  = x.costo_promedio,
+                        "ULT. COSTO"    = x.ultimo_costo,
+                        "P. LISTA" = x.lista_precios_a
                     FROM ({SQL_COSTOS}) x
                     WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
                 """)
                 log.info("Costos y precio actualizados en %s ítems", cur.rowcount)
-                # margen lista vs último costo (usa LISTA PRECIOS A y ULTIMO COSTO)
+                # margen lista vs último costo (usa P. LISTA y ULT. COSTO)
                 cur.execute(SQL_PLISTA_VS_ULTCOSTO)
                 # pega proveedor 1 y 2 por empresa + código de ítem (de core.ddmrp_proveedor_item)
                 cur.execute(f"""
                     UPDATE {PG_SCHEMA}.{PG_TABLA} d
                     SET "COD. PROV1" = x.cod_prov1,
-                        "NOM. PROV1" = x.nom_prov1,
+                        "PROV1" = x.nom_prov1,
                         "COD. PROV2" = x.cod_prov2,
-                        "NOM. PROV2" = x.nom_prov2
+                        "PROV2" = x.nom_prov2
                     FROM ({SQL_PROVEEDOR_ITEM}) x
                     WHERE d."EMPRESA" = x.empresa AND d."CODIGO_ITEM" = x.codigoitem
                 """)
