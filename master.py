@@ -18,6 +18,8 @@ import ddmrp_ventas_picos
 from config import POSTGRES
 # tabla marca -> proveedor de IKONIX: una sola definición, en ddmrp_proveedor_item.py
 from ddmrp_proveedor_item import EMPRESA_DLT_POR_MARCA, MARCA_PROVEEDOR_IKONIX
+# homologación ROADWING PESADO (STOX -> AUTOLLANTA): una sola definición, en ddmrp_ventas_picos.py
+from ddmrp_ventas_picos import ROADWING_DESTINO, ROADWING_ORIGEN, ROADWING_PROPIEDAD
 
 # Tablas resumen: corren antes, en este orden
 PROCESOS = [
@@ -143,12 +145,12 @@ COLUMNAS_CALCULADAS = [
     ('ADU SIN PICOS',                 'numeric DEFAULT 0'),        # [12]
     ('ZONA ROJA BASE',                'numeric DEFAULT 0'),        # [16]
     ('ZONA ROJA SEGURIDAD',           'numeric DEFAULT 0'),        # [17]
-    ('ZONA ROJA',                     'numeric DEFAULT 0'),        # [18]
+    ('ZONA ROJA (TOR)',               'numeric DEFAULT 0'),        # [18]
     ('ZONA AMARILLA',                 'numeric DEFAULT 0'),        # [19]
-    ('LIMITE UNIDADES ZONA AMARILLA', 'numeric DEFAULT 0'),        # [20]
+    ('LIMITE ZONA AMARILLA (TOY)',    'numeric DEFAULT 0'),        # [20]
     ('ZONA VERDE',                    'numeric DEFAULT 0'),        # [21]
-    ('TAMAÑO BUFFER',                 'numeric DEFAULT 0'),        # [22]
-    ('FLUJO NETO',                    'numeric DEFAULT 0'),        # [23]
+    ('TAMAÑO BUFFER (TOG)',           'numeric DEFAULT 0'),        # [22]
+    ('FLUJO NETO (NFP)',              'numeric DEFAULT 0'),        # [23]
     ('TAMAÑO PEDIDO',                 'numeric DEFAULT 0'),        # [24]
     ('NUEVO TAMAÑO PEDIDO',           'numeric DEFAULT 0'),        # [25]
     ('TAMAÑO 3 MESES INVENTARIO',     'numeric DEFAULT 0'),        # [26]
@@ -166,6 +168,47 @@ COLUMNAS_VIEJAS = ["ADU CON PICOS", "ADU_90", "ADU60D", "COD_PROVEEDOR_IMP", "NO
 # =============================================================================
 # FÓRMULAS: un bloque por columna, en el orden en que se ejecutan (ver PASOS)
 # =============================================================================
+
+# -----------------------------------------------------------------------------
+# HOMOLOGACIÓN comercializador -> importador: los ítems del comercializador que cumplen la
+# condición y su ítem del importador con el mismo nombre (DESCRIPCION). Las ventas ya se
+# pasan en vw_ddmrp_ventas, el ADU en ddmrp_ventas_picos.py y el stock en ddmrp_bodega.py;
+# aquí se pasan los días con inventario y el P. LISTA.
+#   ROADWING PESADO: comercializador STOX       -> importador AUTOLLANTA
+#   CST MOTO:        comercializador MAXXIMUNDO -> importador STOX
+# -----------------------------------------------------------------------------
+ROADWING_CONDICION = f'"PROPIEDAD" = \'{ROADWING_PROPIEDAD}\''
+CST_MOTO_ORIGEN    = "MAXXIMUNDO"
+CST_MOTO_DESTINO   = "STOX"
+CST_MOTO_CONDICION = '"MARCA" = \'CST\' AND "GRUPO" = \'LLANTAS MOTO\''   # misma regla que la vista
+
+
+def sql_pasar(columnas, origen=ROADWING_ORIGEN, destino=ROADWING_DESTINO, condicion=ROADWING_CONDICION):
+    """UPDATE que copia columnas del ítem del comercializador (origen) al del importador (destino) con el mismo nombre."""
+    select = ", ".join(f'MAX("{c}") AS "{c}"' for c in columnas)
+    sets = ", ".join(f'"{c}" = st."{c}"' for c in columnas)
+    return f"""
+UPDATE {TABLA} au
+SET {sets}
+FROM (
+    SELECT UPPER(TRIM("DESCRIPCION")) AS nombre, {select}
+    FROM {TABLA}
+    WHERE "EMPRESA" = '{origen}' AND {condicion}
+    GROUP BY UPPER(TRIM("DESCRIPCION"))
+) st
+WHERE au."EMPRESA" = '{destino}' AND UPPER(TRIM(au."DESCRIPCION")) = st.nombre
+"""
+
+
+# -----------------------------------------------------------------------------
+# [H1] DIAS INV 1 AÑO y DIAS INV 90D del importador = los del comercializador
+#      (el stock estuvo en el comercializador; va antes de [3]-[6], que usan estos días)
+#        ROADWING PESADO: AUTOLLANTA toma los días de STOX
+#        CST MOTO:        STOX toma los días de MAXXIMUNDO
+# -----------------------------------------------------------------------------
+SQL_DIAS_INV_DE_STOX = sql_pasar(["DIAS INV 1 AÑO", "DIAS INV 90D"])
+SQL_DIAS_INV_CST_MOTO = sql_pasar(["DIAS INV 1 AÑO", "DIAS INV 90D"],
+                                  CST_MOTO_ORIGEN, CST_MOTO_DESTINO, CST_MOTO_CONDICION)
 
 # -----------------------------------------------------------------------------
 # [1] TOP = 'SI' si la descripción tiene una medida top (ddmrp_medidas_top), si no 'NO'
@@ -425,7 +468,7 @@ SET "ZONA ROJA SEGURIDAD" = ROUND("ZONA ROJA BASE" * "VF", 2)
 # -----------------------------------------------------------------------------
 SQL_ZONA_ROJA = f"""
 UPDATE {TABLA}
-SET "ZONA ROJA" = "ZONA ROJA BASE" + "ZONA ROJA SEGURIDAD"
+SET "ZONA ROJA (TOR)" = "ZONA ROJA BASE" + "ZONA ROJA SEGURIDAD"
 """
 
 # -----------------------------------------------------------------------------
@@ -437,11 +480,11 @@ SET "ZONA AMARILLA" = ROUND("ADU" * "DLT", 2)
 """
 
 # -----------------------------------------------------------------------------
-# [20] LIMITE UNIDADES ZONA AMARILLA (TOY) = ZONA ROJA + ZONA AMARILLA
+# [20] LIMITE ZONA AMARILLA (TOY) = ZONA ROJA + ZONA AMARILLA
 # -----------------------------------------------------------------------------
 SQL_LIMITE_ZONA_AMARILLA = f"""
 UPDATE {TABLA}
-SET "LIMITE UNIDADES ZONA AMARILLA" = "ZONA ROJA" + "ZONA AMARILLA"
+SET "LIMITE ZONA AMARILLA (TOY)" = "ZONA ROJA (TOR)" + "ZONA AMARILLA"
 """
 
 # -----------------------------------------------------------------------------
@@ -457,11 +500,11 @@ SET "ZONA VERDE" = GREATEST(
 """
 
 # -----------------------------------------------------------------------------
-# [22] TAMAÑO BUFFER (TOG) = LIMITE UNIDADES ZONA AMARILLA + ZONA VERDE
+# [22] TAMAÑO BUFFER (TOG) = LIMITE  ZONA AMARILLA + ZONA VERDE
 # -----------------------------------------------------------------------------
 SQL_TAMANO_BUFFER = f"""
 UPDATE {TABLA}
-SET "TAMAÑO BUFFER" = "LIMITE UNIDADES ZONA AMARILLA" + "ZONA VERDE"
+SET "TAMAÑO BUFFER (TOG)" = "LIMITE ZONA AMARILLA (TOY)" + "ZONA VERDE"
 """
 
 # -----------------------------------------------------------------------------
@@ -469,17 +512,17 @@ SET "TAMAÑO BUFFER" = "LIMITE UNIDADES ZONA AMARILLA" + "ZONA VERDE"
 # -----------------------------------------------------------------------------
 SQL_FLUJO_NETO = f"""
 UPDATE {TABLA}
-SET "FLUJO NETO" = "STOCK TOTAL" - ("ADU" * "DLT")
+SET "FLUJO NETO (NFP)" = "STOCK TOTAL" - ("ADU" * "DLT")
 """
 
 # -----------------------------------------------------------------------------
-# [24] TAMAÑO PEDIDO = TAMAÑO BUFFER - FLUJO NETO   si FLUJO NETO <= TAMAÑO BUFFER
-#                    = 0                           si FLUJO NETO >  TAMAÑO BUFFER
+# [24] TAMAÑO PEDIDO = TAMAÑO BUFFER (TOG) - FLUJO NETO   si FLUJO NETO <= TAMAÑO BUFFER (TOG)
+#                    = 0                           si FLUJO NETO >  TAMAÑO BUFFER (TOG)
 # -----------------------------------------------------------------------------
 SQL_TAMANO_PEDIDO = f"""
 UPDATE {TABLA}
 SET "TAMAÑO PEDIDO" = CASE
-	WHEN "FLUJO NETO" <= "TAMAÑO BUFFER" THEN GREATEST("TAMAÑO BUFFER" - "FLUJO NETO", 0)
+	WHEN "FLUJO NETO (NFP)" <= "TAMAÑO BUFFER (TOG)" THEN GREATEST("TAMAÑO BUFFER (TOG)" - "FLUJO NETO (NFP)", 0)
 	ELSE 0
 END
 """
@@ -529,6 +572,12 @@ WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
 """
 
 # -----------------------------------------------------------------------------
+# [H2] P. LISTA de AUTOLLANTA = el de STOX   (COSTO PROM y ULT. COSTO se quedan los de
+#      AUTOLLANTA; va antes de [28] para que el margen se calcule con este precio)
+# -----------------------------------------------------------------------------
+SQL_PLISTA_DE_STOX = sql_pasar(["P. LISTA"])
+
+# -----------------------------------------------------------------------------
 # [28] P. LISTA VS ULT.COSTO = (P. LISTA - ULT. COSTO) / P. LISTA * 100
 #        - sin último costo se toma 0 (da 100 %)
 #        - P. LISTA 0 o vacío: queda vacío (no se puede dividir)
@@ -564,6 +613,8 @@ WHERE d."EMPRESA" = x.empresa AND d."CODIGO_ITEM" = x.codigoitem
 # =============================================================================
 PASOS = [
     # n    columna que se calcula                 SQL                         parámetros
+    ("[H1] DIAS INV de STOX a AUTOLLANTA",       SQL_DIAS_INV_DE_STOX),
+    ("[H1] DIAS INV de MAXXIMUNDO a STOX (CST)", SQL_DIAS_INV_CST_MOTO),
     ("[1]  TOP",                                  SQL_TOP),
     ("[2]  STOCK TOTAL",                          SQL_STOCK_TOTAL),
     ("[3]  DEMANDA MES - AÑO",                    SQL_DEMANDA_MES_1ANIO),
@@ -581,16 +632,17 @@ PASOS = [
     ("[15] LTF por defecto (0.20)",               SQL_LTF_DEFAULT),
     ("[16] ZONA ROJA BASE",                       SQL_ZONA_ROJA_BASE),
     ("[17] ZONA ROJA SEGURIDAD",                  SQL_ZONA_ROJA_SEGURIDAD),
-    ("[18] ZONA ROJA",                            SQL_ZONA_ROJA),
+    ("[18] ZONA ROJA (TOR)",                            SQL_ZONA_ROJA),
     ("[19] ZONA AMARILLA",                        SQL_ZONA_AMARILLA),
-    ("[20] LIMITE UNIDADES ZONA AMARILLA",        SQL_LIMITE_ZONA_AMARILLA),
+    ("[20] LIMITE ZONA AMARILLA (TOY)",        SQL_LIMITE_ZONA_AMARILLA),
     ("[21] ZONA VERDE",                           SQL_ZONA_VERDE),
-    ("[22] TAMAÑO BUFFER",                        SQL_TAMANO_BUFFER),
-    ("[23] FLUJO NETO",                           SQL_FLUJO_NETO),
+    ("[22] TAMAÑO BUFFER (TOG)",                        SQL_TAMANO_BUFFER),
+    ("[23] FLUJO NETO (NFP)",                           SQL_FLUJO_NETO),
     ("[24] TAMAÑO PEDIDO",                        SQL_TAMANO_PEDIDO),
     ("[25] NUEVO TAMAÑO PEDIDO",                  SQL_NUEVO_TAMANO_PEDIDO),
     ("[26] TAMAÑO 3 MESES INVENTARIO",            SQL_TAMANO_3_MESES),
     ("[27] Costos y precio",                      SQL_COSTOS),
+    ("[H2] P. LISTA de STOX a AUTOLLANTA",       SQL_PLISTA_DE_STOX),
     ("[28] P. LISTA VS ULT.COSTO",                SQL_PLISTA_VS_ULTCOSTO),
     ("[29] Proveedor 1 y 2",                      SQL_PROVEEDORES),
 ]

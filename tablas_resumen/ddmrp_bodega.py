@@ -180,6 +180,24 @@ FROM (
 WHERE au.empresa = 'AUTOLLANTA' AND UPPER(TRIM(au.nombre_item)) = st.nombre
 """
 
+# ---------------------------------------------------------------------------
+# HOMOLOGACIÓN: el stock de MAXXIMUNDO con propiedad CST MOTO (llantas moto CST) se SUMA
+# al ítem de STOX que tiene el mismo nombre (igual que vw_ddmrp_ventas hace con las ventas)
+#   STOX.sum = STOX.sum + MAXXIMUNDO.sum            (MAXXIMUNDO conserva su stock)
+# El nombre se compara sin importar mayúsculas ni espacios al inicio/final.
+# ---------------------------------------------------------------------------
+SQL_SUMAR_STOCK_CST = f"""
+UPDATE {PG_SCHEMA}.{PG_TABLA} st
+SET sum = st.sum + ma.sum
+FROM (
+    SELECT UPPER(TRIM(nombre_item)) AS nombre, SUM(sum) AS sum
+    FROM {PG_SCHEMA}.{PG_TABLA}
+    WHERE empresa = 'MAXXIMUNDO' AND propiedad = 'CST MOTO'
+    GROUP BY UPPER(TRIM(nombre_item))
+) ma
+WHERE st.empresa = 'STOX' AND UPPER(TRIM(st.nombre_item)) = ma.nombre
+"""
+
 
 def cargar(filas):
     conn = psycopg2.connect(**POSTGRES)
@@ -194,6 +212,9 @@ def cargar(filas):
                 # stock de ROADWING PESADO de STOX -> se suma en AUTOLLANTA (mismo nombre de ítem)
                 cur.execute(SQL_SUMAR_STOCK_ROADWING)
                 log.info("Stock ROADWING PESADO de STOX sumado a AUTOLLANTA en %s ítems", cur.rowcount)
+                # stock de CST MOTO de MAXXIMUNDO -> se suma en STOX (mismo nombre de ítem)
+                cur.execute(SQL_SUMAR_STOCK_CST)
+                log.info("Stock CST MOTO de MAXXIMUNDO sumado a STOX en %s ítems", cur.rowcount)
         log.info("Cargadas %s filas en %s.%s", len(filas), PG_SCHEMA, PG_TABLA)
     finally:
         conn.close()

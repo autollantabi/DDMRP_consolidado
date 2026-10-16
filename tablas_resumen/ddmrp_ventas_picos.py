@@ -45,6 +45,23 @@ LIMITE_VF_MEDIO = 1
 N_TRAMOS           = 12
 MIN_TRAMOS_LIMPIOS = 3  # con menos tramos el CV no se puede medir -> VF medio
 
+# HOMOLOGACIONES (las mismas de core.vw_ddmrp_ventas): las ventas de los ítems de la empresa
+# origen que cumplen la condición se pasan al ítem de la empresa destino con el MISMO NOMBRE
+# (dim_item.dit_nombre), y ese ítem toma los días con inventario del origen. El origen queda
+# sin esas ventas. La condición se aplica sobre dim_item (alias "o").
+#   ROADWING PESADO: STOX -> AUTOLLANTA
+#   CST motos:       MAXXIMUNDO -> STOX
+# master.py usa las constantes ROADWING_* para los días con inventario y el P. LISTA.
+ROADWING_ORIGEN    = "STOX"
+ROADWING_DESTINO   = "AUTOLLANTA"
+ROADWING_PROPIEDAD = "ROADWING PESADO"
+
+HOMOLOGACIONES = [
+    # (empresa origen,   empresa destino,   condición sobre dim_item del ítem origen)
+    (ROADWING_ORIGEN,    ROADWING_DESTINO,  f"o.dit_nombrefabricante = 'ROADWING' AND o.dit_propiedad = '{ROADWING_PROPIEDAD}'"),
+    ("MAXXIMUNDO",       "STOX",            "o.dit_nombrefabricante = 'CST' AND o.dit_grupo = 'LLANTAS MOTO'"),
+]
+
 DECIMALES_Z = 2        # decimales con los que se redondea el Z modificado
 DECIMALES_DESV = 2     # decimales con los que se redondea desviacion_estandar
 
@@ -150,6 +167,57 @@ def extraer_dias_stock():
 def sin_prefijo(codigo):
     """IK_2001408 -> 2001408 (el código de core.ddmrp_inventario)."""
     return codigo.split("_", 1)[1] if "_" in codigo else codigo
+
+
+# ---------------------------------------------------------------------------
+# HOMOLOGACIÓN (reglas en HOMOLOGACIONES), por nombre exacto del ítem en dim_item, igual que
+# vw_ddmrp_ventas. Ítems del origen sin un ítem con el mismo nombre en el destino se quedan
+# en su empresa.
+# Devuelve {(empresa origen, código): (empresa destino, código)},
+#   ej. {("STOX", "ST_2001114"): ("AUTOLLANTA", "AU_2003841")}
+# ---------------------------------------------------------------------------
+def leer_homologacion():
+    mapa = {}
+    with psycopg2.connect(**POSTGRES) as conn:
+        cur = conn.cursor()
+        for origen, destino, condicion in HOMOLOGACIONES:
+            cur.execute(f"""
+                SELECT o.dit_codigo, d.dit_codigo
+                FROM core.dim_item o
+                JOIN core.dim_item d ON d.dit_empresa = %(destino)s AND d.dit_nombre = o.dit_nombre
+                WHERE o.dit_empresa = %(origen)s AND {condicion}
+            """, {"origen": origen, "destino": destino})
+            pares = cur.fetchall()
+            mapa.update({(origen, cod_o): (destino, cod_d) for cod_o, cod_d in pares})
+            log.info("Homologación %s -> %s: %s ítems", origen, destino, len(pares))
+    return mapa
+
+
+def homologar_ventas(columnas, filas, mapa):
+    """Pasa las ventas del ítem origen al ítem destino y suma por día con las ventas propias del destino."""
+    i_cant = columnas.index("cantidad")
+    por_dia = {}
+    for f in filas:
+        if (f[0], f[1]) in mapa:
+            f = mapa[(f[0], f[1])] + f[2:]
+        clave = f[:3]                                   # empresa, ítem, fecha
+        if clave in por_dia:
+            anterior = por_dia[clave]
+            f = anterior[:i_cant] + (anterior[i_cant] + f[i_cant],) + anterior[i_cant + 1:]
+        por_dia[clave] = f
+    return sorted(por_dia.values(), key=lambda f: (f[0], f[1], f[2]))
+
+
+def homologar_dias_stock(stock, mapa):
+    """El ítem destino toma los días con inventario de su ítem origen
+    (si dos ítems origen van al mismo destino, el mayor)."""
+    dias_destino = {}
+    for (emp_o, cod_o), destino in mapa.items():
+        dias = stock.get((emp_o, sin_prefijo(cod_o)), 0)
+        dias_destino[destino] = max(dias, dias_destino.get(destino, 0))
+    for (emp_d, cod_d), dias in dias_destino.items():
+        stock[(emp_d, sin_prefijo(cod_d))] = dias
+    return stock
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +390,10 @@ def ejecutar():
     dias, umbral_pico, constante_z, factores_vf = leer_parametros()
     columnas, filas, hoy = extraer(dias)
     stock = extraer_dias_stock()
+    # HOMOLOGACIONES: ventas y días con inventario del ítem origen -> ítem destino
+    mapa = leer_homologacion()
+    filas = homologar_ventas(columnas, filas, mapa)
+    stock = homologar_dias_stock(stock, mapa)
     columnas, filas = agregar_desv_mediana(columnas, filas, umbral_pico, constante_z)
     cargar(*agregar_adu_vf(columnas, filas, hoy, dias, stock, factores_vf))
 
