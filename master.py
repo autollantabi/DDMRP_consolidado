@@ -92,18 +92,20 @@ SELECT
 	ROUND(a."365D"::numeric, 2) AS "UN (#) - AÑO",
 	ROUND(a.max_cantidad_anio::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
 	a.supera_umbral AS "DIF. MAX AÑO vs TOT. AÑO",
-	ROUND(c.ddmrp_stock_inv_1anio::numeric, 2) AS "DIAS INV 1 AÑO",
+	CASE
+		WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
+		ELSE ROUND(c.ddmrp_stock_inv_1anio::numeric, 2)
+	END AS "DIAS INV 1 AÑO",
 	0::numeric AS "DEMANDA MES - AÑO",   -- [3]
 	ROUND(a."90D"::numeric, 2) AS "UN (#) - 90D",
-	ROUND(c."ddmrp_stock_inv_90D"::numeric, 2) AS "DIAS INV 90D",
+	CASE
+		WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
+		ELSE ROUND(c."ddmrp_stock_inv_90D"::numeric, 2)
+	END AS "DIAS INV 90D",
 	0::numeric AS "DEMANDA MES 90D",     -- [4]
 	0::numeric AS "% VARIACIÓN DEMANDA",       -- [5]
 	ROUND(a."MES"::numeric, 2) AS "UNIDADES MES ACTUAL",
-	--ROUND(d.sum::numeric, 2) AS "EN STOCK",
-    CASE
-        WHEN ROUND(d.sum::numeric, 2) < 4   THEN 0
-        ELSE ROUND(d.sum::numeric, 2)
-    END AS "EN STOCK",
+	ROUND(d.sum::numeric, 2) AS "EN STOCK",
     ROUND((COALESCE(e."Transito15D", 0) + COALESCE(e."Transito30D", 0)
      + COALESCE(e."Transito45D", 0) + COALESCE(e."Transito>45D", 0))::numeric, 2) AS "TRANSITOS TOTAL",
     ROUND(e."Transito15D"::numeric, 2) AS "TRANSITO 15D",
