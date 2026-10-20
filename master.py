@@ -158,11 +158,18 @@ COLUMNAS_CALCULADAS = [
     ('TAMAÑO PEDIDO',                 'numeric DEFAULT 0'),        # [24]
     ('NUEVO TAMAÑO PEDIDO',           'numeric DEFAULT 0'),        # [25]
     ('TAMAÑO 3 MESES INVENTARIO',     'numeric DEFAULT 0'),        # [26]
+    ('NFP JP',                        'numeric'),                  # SQL_NFP_JP
+    ('PROD SIN VENTAS SIN STOCK',     'varchar'),                  # SQL_PROD_SIN_VENTAS_SIN_STOCK
+    ('PROD CON STOCK SIN VENTAS',     'varchar'),                  # SQL_PROD_CON_STOCK_SIN_VENTAS
+    ('VALIDADOR',                     'numeric'),                  # SQL_VALIDADOR
+    ('PEDIDO SUGERIDO JP',            'varchar'),                  # SQL_PEDIDO_SUGERIDO_JP
     ('ULTIMO FOB',                    'numeric(20,2) DEFAULT 0'),  # [27]
     ('COSTO PROM',                    'numeric(20,2) DEFAULT 0'),  # [27]
     ('ULT. COSTO',                    'numeric(20,2) DEFAULT 0'),  # [27]
     ('P. LISTA',                      'numeric(20,2) DEFAULT 0'),  # [27]
     ('P. LISTA VS ULT.COSTO',         'numeric(20,2)'),            # [28]
+    ('ULTIMA VENTA',                  'date'),                     # [30]
+    ('ULTIMA COMPRA',                 'date'),                     # [31]
 ]
 
 # Columnas de versiones anteriores que ya no se usan: se borran si existen
@@ -569,6 +576,47 @@ UPDATE {TABLA}
 SET "TAMAÑO 3 MESES INVENTARIO" = ROUND("ADU" * {DIAS_3_MESES}, 2)
 """
 
+def redondea_par(x):
+    """Igual que REDONDEA.PAR (EVEN) de Excel: al par siguiente, alejándose de 0 (7.3 -> 8, -7.3 -> -8, 0 -> 0)."""
+    return f"(SIGN({x}) * CEIL(ABS({x}) / 2) * 2)"
+
+
+# Redondear a par
+# FORMULA EXCEL '=REDONDEA.PAR(AT2-((AY2*AV2)/3))'
+SQL_NFP_JP = f"""
+UPDATE {TABLA}
+SET "NFP JP" = {redondea_par('("STOCK TOTAL" - (("ADU" * "DLT") / 3))')}
+"""
+
+# FORMULA EXCEL '=SI(Y(BH2=0;AT2=0);"REVISAR";0)'
+SQL_PROD_SIN_VENTAS_SIN_STOCK = f"""
+UPDATE {TABLA}
+SET "PROD SIN VENTAS SIN STOCK" = CASE WHEN "FLUJO NETO (NFP)" = 0 AND "STOCK TOTAL" = 0 THEN 'REVISAR' ELSE '0' END
+"""
+
+# FORMULA EXCEL '=SI(Y(BH2=0;AU2<>0);"LIQUIDAR";0)'
+SQL_PROD_CON_STOCK_SIN_VENTAS = f"""
+UPDATE {TABLA}
+SET "PROD CON STOCK SIN VENTAS" = CASE WHEN "FLUJO NETO (NFP)" = 0 AND "STOCK PROYECTADO DLT" <> 0 THEN 'LIQUIDAR' ELSE '0' END
+"""
+
+# FORMULA EXCEL '=SI(BI2<>0;BI2;0)'
+SQL_VALIDADOR = f"""
+UPDATE {TABLA}
+SET "VALIDADOR" = CASE WHEN "TAMAÑO PEDIDO" <> 0 THEN "TAMAÑO PEDIDO" ELSE '0' END
+"""
+
+# FORMULA EXCEL '=SI(Y(BO2>0;BL2<=0);REDONDEA.PAR(BI2);SI(Y(BI2>0;BL2<BI2);REDONDEA.PAR((BI2-BL2));SI(Y(BI2>0;BL2>BI2);0;"REVISAR")))'
+SQL_PEDIDO_SUGERIDO_JP = f"""
+UPDATE {TABLA}
+SET "PEDIDO SUGERIDO JP" = CASE
+    WHEN "VALIDADOR" > 0 AND "NFP JP" <= 0 THEN {redondea_par('"TAMAÑO PEDIDO"')}::text
+    WHEN "TAMAÑO PEDIDO" > 0 AND "NFP JP" < "TAMAÑO PEDIDO" THEN {redondea_par('("TAMAÑO PEDIDO" - "NFP JP")')}::text
+    WHEN "TAMAÑO PEDIDO" > 0 AND "NFP JP" > "TAMAÑO PEDIDO" THEN '0'
+    ELSE 'REVISAR'
+END
+"""
+
 # -----------------------------------------------------------------------------
 # [27] ULTIMO FOB = dit_ultimofob | COSTO PROM = dit_costopromedio |
 #      ULT. COSTO = dit_ultimocosto | P. LISTA = dit_listaprecios_a     (dim_item, 2 decimales)
@@ -628,6 +676,34 @@ FROM (
 WHERE d."EMPRESA" = x.empresa AND d."CODIGO_ITEM" = x.codigoitem
 """
 
+# -----------------------------------------------------------------------------
+# [30] ULTIMA VENTA = ultima_venta de vw_ddmrp_ventas
+#      (fecha de la última venta con los filtros de la vista: últimos 365 días, sin PPTO,
+#       mayoreo / B2B, sin clientes relacionados y con la homologación; vacía si no vendió en el año)
+# -----------------------------------------------------------------------------
+SQL_ULT_VENTA = f"""
+UPDATE {TABLA} d
+SET "ULTIMA VENTA" = v.ultima_venta
+FROM (
+    SELECT hev_empresa, hev_codigoitem, ultima_venta
+    FROM core.vw_ddmrp_ventas
+) v
+WHERE d."EMPRESA" = v.hev_empresa AND d."CODIGO_ITEM" = v.hev_codigoitem
+"""
+
+# -----------------------------------------------------------------------------
+# [31] ULTIMA COMPRA = dit_ultingreso de dim_item (fecha del último ingreso del ítem)
+# -----------------------------------------------------------------------------
+SQL_ULT_COMPRA = f"""
+UPDATE {TABLA} d
+SET "ULTIMA COMPRA" = x.dit_ultingreso
+FROM (
+    SELECT dit_empresa, dit_codigo, dit_ultingreso
+    FROM core.dim_item
+) x
+WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
+"""
+
 
 # =============================================================================
 # PASOS: orden en que se ejecutan las fórmulas (cada una usa columnas de pasos anteriores)
@@ -663,10 +739,17 @@ PASOS = [
     ("[24] TAMAÑO PEDIDO",                        SQL_TAMANO_PEDIDO),
     ("[25] NUEVO TAMAÑO PEDIDO",                  SQL_NUEVO_TAMANO_PEDIDO),
     ("[26] TAMAÑO 3 MESES INVENTARIO",            SQL_TAMANO_3_MESES),
+    ("NFP JP",                                    SQL_NFP_JP),
+    ("PROD SIN VENTAS SIN STOCK",                 SQL_PROD_SIN_VENTAS_SIN_STOCK),
+    ("PROD CON STOCK SIN VENTAS",                 SQL_PROD_CON_STOCK_SIN_VENTAS),
+    ("VALIDADOR",                                 SQL_VALIDADOR),
+    ("PEDIDO SUGERIDO JP",                        SQL_PEDIDO_SUGERIDO_JP),
     ("[27] Costos y precio",                      SQL_COSTOS),
     ("[H2] P. LISTA de STOX a AUTOLLANTA",       SQL_PLISTA_DE_STOX),
     ("[28] P. LISTA VS ULT.COSTO",                SQL_PLISTA_VS_ULTCOSTO),
     ("[29] Proveedor 1 y 2",                      SQL_PROVEEDORES),
+    ("[30] ULTIMA VENTA",                         SQL_ULT_VENTA),
+    ("[31] ULTIMA COMPRA",                        SQL_ULT_COMPRA),
 ]
 
 
