@@ -89,24 +89,33 @@ SELECT
 	f.segmento_final AS "CLASIF. PARETO",
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
-	ROUND(a."365D"::numeric, 2) AS "UN (#) - AÑO",
-	ROUND(a.max_cantidad_anio::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
-	a.supera_umbral AS "DIF. MAX AÑO vs TOT. AÑO",
-    ROUND(c.ddmrp_stock_inv_1anio::numeric, 2) AS "DIAS INV 1 AÑO",
-	                --CASE
-	                --	WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
-	                --	ELSE ROUND(c.ddmrp_stock_inv_1anio::numeric, 2)
-	                --END AS "DIAS INV 1 AÑO",
+
+	--ROUND(a."365D"::numeric, 2) AS "UN (#) - AÑO",
+    ROUND(COALESCE(a."365D", 0)::numeric, 2) AS "UN (#) - AÑO",
+
+	--ROUND(a.max_cantidad_anio::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
+    ROUND(COALESCE(a.max_cantidad_anio, 0)::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
+
+	--a.supera_umbral AS "DIF. MAX AÑO vs TOT. AÑO",
+    COALESCE(a.supera_umbral, 'NO') AS "DIF. MAX AÑO vs TOT. AÑO",
+
+    --ROUND(c.ddmrp_stock_inv_1anio::numeric, 2) AS "DIAS INV 1 AÑO",
+    ROUND(COALESCE(c.ddmrp_stock_inv_1anio, 0)::numeric, 2) AS "DIAS INV 1 AÑO",
+
 	0::numeric AS "DEMANDA MES - AÑO",   -- [3]
-	ROUND(a."90D"::numeric, 2) AS "UN (#) - 90D",
-    ROUND(c."ddmrp_stock_inv_90D"::numeric, 2) AS "DIAS INV 90D",
-	                    --CASE
-	                    --	WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
-	                    --	ELSE ROUND(c."ddmrp_stock_inv_90D"::numeric, 2)
-	                    --END AS "DIAS INV 90D",
+
+	--ROUND(a."90D"::numeric, 2) AS "UN (#) - 90D",
+    ROUND(COALESCE(a."90D", 0)::numeric, 2) AS "UN (#) - 90D",
+
+    --ROUND(c."ddmrp_stock_inv_90D"::numeric, 2) AS "DIAS INV 90D",
+    ROUND(COALESCE(c."ddmrp_stock_inv_90D", 0)::numeric, 2) AS "DIAS INV 90D",
+    
 	0::numeric AS "DEMANDA MES 90D",     -- [4]
 	0::numeric AS "% VARIACIÓN DEMANDA",       -- [5]
-	ROUND(a."MES"::numeric, 2) AS "UNIDADES MES ACTUAL",
+
+	--ROUND(a."MES"::numeric, 2) AS "UNIDADES MES ACTUAL",
+    ROUND(COALESCE(a."MES", 0)::numeric, 2) AS "UNIDADES MES ACTUAL",
+
 	ROUND(d.sum::numeric, 2) AS "EN STOCK",
     ROUND((COALESCE(e."Transito15D", 0) + COALESCE(e."Transito30D", 0)
      + COALESCE(e."Transito45D", 0) + COALESCE(e."Transito>45D", 0))::numeric, 2) AS "TRANSITOS TOTAL",
@@ -164,12 +173,12 @@ COLUMNAS_CALCULADAS = [
     ('VALIDADOR',                     'numeric'),                  # SQL_VALIDADOR
     ('PEDIDO SUGERIDO JP',            'varchar'),                  # SQL_PEDIDO_SUGERIDO_JP
     ('ULTIMO FOB',                    'numeric(20,2) DEFAULT 0'),  # [27]
+    ('ULTIMA COMPRA',                 'date'),                     # [31]
     ('COSTO PROM',                    'numeric(20,2) DEFAULT 0'),  # [27]
     ('ULT. COSTO',                    'numeric(20,2) DEFAULT 0'),  # [27]
     ('P. LISTA',                      'numeric(20,2) DEFAULT 0'),  # [27]
     ('P. LISTA VS ULT.COSTO',         'numeric(20,2)'),            # [28]
     ('ULTIMA VENTA',                  'date'),                     # [30]
-    ('ULTIMA COMPRA',                 'date'),                     # [31]
 ]
 
 # Columnas de versiones anteriores que ya no se usan: se borran si existen
@@ -631,10 +640,10 @@ FROM (
     SELECT
     	dit_empresa,
     	dit_codigo,
-    	ROUND(dit_ultimofob, 2)      AS ultimo_fob,
-    	ROUND(dit_costopromedio, 2)  AS costo_promedio,
-    	ROUND(dit_ultimocosto, 2)    AS ultimo_costo,
-    	ROUND(dit_listaprecios_a, 2) AS lista_precios_a
+    	ROUND(COALESCE(dit_ultimofob, 0), 2)      AS ultimo_fob,
+    	ROUND(COALESCE(dit_costopromedio, 0), 2)  AS costo_promedio,
+    	ROUND(COALESCE(dit_ultimocosto, 0), 2)    AS ultimo_costo,
+    	ROUND(COALESCE(dit_listaprecios_a, 0), 2) AS lista_precios_a
     FROM core.dim_item
 ) x
 WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
@@ -653,9 +662,9 @@ SQL_PLISTA_DE_STOX = sql_pasar(["P. LISTA"])
 # -----------------------------------------------------------------------------
 SQL_PLISTA_VS_ULTCOSTO = f"""
 UPDATE {TABLA}
-SET "P. LISTA VS ULT.COSTO" = ROUND(
+SET "P. LISTA VS ULT.COSTO" = COALESCE(ROUND(
 	("P. LISTA" - COALESCE("ULT. COSTO", 0)) * 100 / NULLIF("P. LISTA", 0)
-, 2)
+, 2), 0)
 """
 
 # -----------------------------------------------------------------------------
