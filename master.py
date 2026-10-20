@@ -92,16 +92,18 @@ SELECT
 	ROUND(a."365D"::numeric, 2) AS "UN (#) - AÑO",
 	ROUND(a.max_cantidad_anio::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
 	a.supera_umbral AS "DIF. MAX AÑO vs TOT. AÑO",
-	CASE
-		WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
-		ELSE ROUND(c.ddmrp_stock_inv_1anio::numeric, 2)
-	END AS "DIAS INV 1 AÑO",
+    ROUND(c.ddmrp_stock_inv_1anio::numeric, 2) AS "DIAS INV 1 AÑO",
+	                --CASE
+	                --	WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
+	                --	ELSE ROUND(c.ddmrp_stock_inv_1anio::numeric, 2)
+	                --END AS "DIAS INV 1 AÑO",
 	0::numeric AS "DEMANDA MES - AÑO",   -- [3]
 	ROUND(a."90D"::numeric, 2) AS "UN (#) - 90D",
-	CASE
-		WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
-		ELSE ROUND(c."ddmrp_stock_inv_90D"::numeric, 2)
-	END AS "DIAS INV 90D",
+    ROUND(c."ddmrp_stock_inv_90D"::numeric, 2) AS "DIAS INV 90D",
+	                    --CASE
+	                    --	WHEN ROUND(d.sum::numeric, 2) < 4 THEN 0
+	                    --	ELSE ROUND(c."ddmrp_stock_inv_90D"::numeric, 2)
+	                    --END AS "DIAS INV 90D",
 	0::numeric AS "DEMANDA MES 90D",     -- [4]
 	0::numeric AS "% VARIACIÓN DEMANDA",       -- [5]
 	ROUND(a."MES"::numeric, 2) AS "UNIDADES MES ACTUAL",
@@ -211,6 +213,23 @@ WHERE au."EMPRESA" = '{destino}' AND UPPER(TRIM(au."DESCRIPCION")) = st.nombre
 SQL_DIAS_INV_DE_STOX = sql_pasar(["DIAS INV 1 AÑO", "DIAS INV 90D"])
 SQL_DIAS_INV_CST_MOTO = sql_pasar(["DIAS INV 1 AÑO", "DIAS INV 90D"],
                                   CST_MOTO_ORIGEN, CST_MOTO_DESTINO, CST_MOTO_CONDICION)
+
+# -----------------------------------------------------------------------------
+# [H3] Si EN STOCK > 4, cada columna de días que esté en 0 (o vacía) pasa a 1, por separado:
+#        DIAS INV 1 AÑO = 0  ->  DIAS INV 1 AÑO + 1
+#        DIAS INV 90D   = 0  ->  DIAS INV 90D + 1
+#      La que no está en 0 queda igual.
+#      Va después de [H1] y antes de [3]-[6], que usan estos días.
+# -----------------------------------------------------------------------------
+SQL_DIAS_INV_MAS_1 = f"""
+UPDATE {TABLA}
+SET "DIAS INV 1 AÑO" = CASE WHEN COALESCE("DIAS INV 1 AÑO", 0) = 0
+                            THEN COALESCE("DIAS INV 1 AÑO", 0) + 1 ELSE "DIAS INV 1 AÑO" END,
+    "DIAS INV 90D"   = CASE WHEN COALESCE("DIAS INV 90D", 0) = 0
+                            THEN COALESCE("DIAS INV 90D", 0) + 1   ELSE "DIAS INV 90D" END
+WHERE "EN STOCK" > 4
+  AND (COALESCE("DIAS INV 1 AÑO", 0) = 0 OR COALESCE("DIAS INV 90D", 0) = 0)
+"""
 
 # -----------------------------------------------------------------------------
 # [1] TOP = 'SI' si la descripción tiene una medida top (ddmrp_medidas_top), si no 'NO'
@@ -617,6 +636,7 @@ PASOS = [
     # n    columna que se calcula                 SQL                         parámetros
     ("[H1] DIAS INV de STOX a AUTOLLANTA",       SQL_DIAS_INV_DE_STOX),
     ("[H1] DIAS INV de MAXXIMUNDO a STOX (CST)", SQL_DIAS_INV_CST_MOTO),
+    ("[H3] DIAS INV + 1 si EN STOCK > 4",         SQL_DIAS_INV_MAS_1),
     ("[1]  TOP",                                  SQL_TOP),
     ("[2]  STOCK TOTAL",                          SQL_STOCK_TOTAL),
     ("[3]  DEMANDA MES - AÑO",                    SQL_DEMANDA_MES_1ANIO),
