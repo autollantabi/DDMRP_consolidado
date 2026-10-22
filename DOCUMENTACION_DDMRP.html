@@ -345,6 +345,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
   <div class="nav-group">Cómo funciona</div>
   <a href="#flujo"><span class="dot"></span>Flujo de ejecución</a>
   <a href="#empresas"><span class="dot"></span>Empresas y códigos</a>
+  <a href="#bodegas"><span class="dot"></span>Bodegas</a>
   <a href="#homologacion"><span class="dot"></span>Importador y comercializador</a>
 
   <div class="nav-group">Detalle técnico</div>
@@ -392,12 +393,12 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
   <div class="steps">
     <div class="step-card"><div class="n">1</div><div class="t">Leer datos</div><div class="d">Stock de SAP, ventas, inventario diario, tránsitos y pedidos del DWH.</div></div>
     <div class="step-card"><div class="n">2</div><div class="t">Resumir</div><div class="d">7 tablas resumen: stock, días con inventario, ADU, DLT, proveedor, TOP y ABC.</div></div>
-    <div class="step-card"><div class="n">3</div><div class="t">Calcular</div><div class="d">40 fórmulas en orden: demanda, lead time, buffer, flujo neto y pedido.</div></div>
+    <div class="step-card"><div class="n">3</div><div class="t">Calcular</div><div class="d">41 fórmulas en orden: demanda, lead time, buffer, flujo neto, pedido y observaciones.</div></div>
     <div class="step-card"><div class="n">4</div><div class="t">Reportar</div><div class="d"><code>export_excel.py</code> arma el reporte de pedidos con colores.</div></div>
   </div>
 
   <div class="grid g4" style="margin-top:14px">
-    <div class="card"><div class="k">Ítems calculados</div><div class="v">12,476</div><div class="s">uno por ítem del maestro</div></div>
+    <div class="card"><div class="k">Ítems calculados</div><div class="v">12,486</div><div class="s">uno por ítem del maestro (21/10/2026)</div></div>
     <div class="card"><div class="k">Empresas</div><div class="v">5</div><div class="s">AUTOLLANTA · MAXXIMUNDO · STOX · IKONIX · AUTOMAX</div></div>
     <div class="card"><div class="k">Ventana de análisis</div><div class="v">365 días</div><div class="s">y 90 días para la demanda reciente</div></div>
     <div class="card"><div class="k">Homologaciones</div><div class="v">3</div><div class="s">ROADWING pesado · CST moto · marcas de IKONIX</div></div>
@@ -457,7 +458,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
   <div class="note warn">Este ítem muestra dos pendientes juntos:
     <ul>
       <li><strong>Nº 1 (flujo neto):</strong> el NFP resta la demanda del lead time (617.16), que ya está en la zona amarilla. Con NFP = 253 el pedido sería 956.76 − 253 = 703.76 (704 al par), casi la mitad.</li>
-      <li><strong>Nº 3 (picos por día):</strong> 376 de sus 545 ventas son picos altos. Con el ADU sin picos (1.72), todo el buffer sería unas 3 veces más chico.</li>
+      <li><strong>Nº 4 (picos por día):</strong> 376 de sus 545 ventas son picos altos. Con el ADU sin picos (1.72), todo el buffer sería unas 3 veces más chico.</li>
     </ul>
     Ver <a href="#pendientes">pendientes</a>.</div>
 </section>
@@ -491,7 +492,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
     <div class="pipe-arrow">→</div>
     <div class="pipe-col">
       <div class="pipe-title">Cálculo final</div>
-      <div class="pipe-box master"><b>master.py</b><span>tabla base + 40 pasos</span></div>
+      <div class="pipe-box master"><b>master.py</b><span>tabla base + 41 pasos</span></div>
       <div class="pipe-box master"><b>vw_ddmrp_ventas</b><span>ventas por ítem</span></div>
       <div class="pipe-box master"><b>vw_ddmrp_trans_ped</b><span>tránsitos y pedidos</span></div>
     </div>
@@ -521,9 +522,11 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
      EMPRESAS
      ========================================================================= -->
 <section class="doc" id="empresas">
-  <div class="sec-head"><div class="sec-num">5</div><div><h2>Empresas, bodegas y códigos</h2><p class="lead">Solo cuentan las bodegas de venta de cada empresa.</p></div></div>
+  <div class="sec-head"><div class="sec-num">5</div><div><h2>Empresas, bodegas y códigos</h2><p class="lead">Las empresas del grupo, todas sus bodegas y cuáles se toman en cuenta para el stock y los días con inventario.</p></div></div>
+
+  <h3>Empresas</h3>
   <div class="table-wrap"><table>
-    <tr><th>Empresa</th><th>Prefijo</th><th>Esquema SAP HANA</th><th>Bodegas de venta</th></tr>
+    <tr><th>Empresa</th><th>Prefijo</th><th>Esquema SAP HANA</th><th>Bodegas que se toman en cuenta</th></tr>
     <tr><td>AUTOLLANTA</td><td><code>AU_</code></td><td><code>SBO_AUTOLLANTA_PROD</code></td><td>01, 02, 03, 07, 08, 09, 10</td></tr>
     <tr><td>MAXXIMUNDO</td><td><code>MA_</code></td><td><code>SBO_MAXXIMUNDO_PROD</code></td><td>02, 03, 07, 08, 09, 10</td></tr>
     <tr><td>STOX</td><td><code>ST_</code></td><td><code>SBO_STOX_PROD</code></td><td>02, 03, 07, 08, 09, 10</td></tr>
@@ -536,6 +539,148 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
     <tr><td><code>dim_item.dit_codigo</code>, <code>core.ddmrp."CODIGO_ITEM"</code></td><td>con prefijo</td><td><code>AU_2003841</code></td></tr>
     <tr><td><code>dim_item.dit_identificador</code>, <code>ddmrp_inventario.ddmrp_item</code></td><td>sin prefijo</td><td><code>2003841</code></td></tr>
   </table></div>
+
+
+  <h3 id="bodegas">Bodegas que se toman en cuenta</h3>
+  <p>Para <strong>EN STOCK</strong> y para los <strong>días con inventario</strong> solo se suman estas bodegas. La lista está repetida en dos scripts y tiene que ser igual en los dos: <code>EMPRESAS_CONFIG</code> en <code>ddmrp_bodega.py</code> (compara con <code>OITW.WhsCode</code> de SAP) y <code>BODEGAS_POR_EMPRESA</code> en <code>ddmrp_inventario.py</code> (compara con <code>hec_inventario.inv_codigo_bodega</code>). Se compara por <strong>código</strong>, no por nombre.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Empresa</th><th>Bodegas que cuentan (código · nombre)</th><th class="num">Stock en esas bodegas</th><th class="num">Stock en todas sus bodegas</th><th class="num">% que cuenta</th></tr>
+    <tr><td><strong>AUTOLLANTA</strong></td><td><code>01</code> RETAIL · <code>02</code> CEDI CUE · <code>03</code> PULMON · <code>07</code> CEDI GYQ · <code>08</code> CEDI UIO · <code>09</code> CURTIEMBRE · <code>10</code> PATAMARCA</td><td class="num">121,949</td><td class="num">131,753</td><td class="num">92.6 %</td></tr>
+<tr><td><strong>MAXXIMUNDO</strong></td><td><code>02</code> CEDI CUE · <code>03</code> PULMON · <code>07</code> CEDI GYQ · <code>08</code> CEDI UIO · <code>09</code> CURTIEMBRE · <code>10</code> PATAMARCA</td><td class="num">683,467</td><td class="num">693,064</td><td class="num">98.6 %</td></tr>
+<tr><td><strong>STOX</strong></td><td><code>02</code> CEDI CUE · <code>03</code> PULMON · <code>07</code> CEDI GYQ · <code>08</code> CEDI UIO · <code>09</code> CURTIEMBRE · <code>10</code> PATAMARCA</td><td class="num">54,085</td><td class="num">54,136</td><td class="num">99.9 %</td></tr>
+<tr><td><strong>IKONIX</strong></td><td><code>01</code> SHOW ROOM  VAN · <code>02</code> CEDI CUE · <code>03</code> PULMON · <code>07</code> MUESTRAS · <code>08</code> MARKETING GONZALEZ SUAREZ · <code>09</code> SERVICIO TECNICO · <code>10</code> PATAMARCA</td><td class="num">181,518</td><td class="num">185,403</td><td class="num">97.9 %</td></tr>
+<tr><td><strong>AUTOMAX</strong></td><td><code>01</code> ALMACÉN GENERAL · <code>02</code> EXHIBICION · <code>03</code> PULMON · <code>04</code> CONSIGNACIÓN · <code>05</code> LICITACIÓN</td><td class="num">40,104</td><td class="num">40,114</td><td class="num">100.0 %</td></tr>
+  </table></div>
+  <p class="muted" style="font-size:13px">Stock en unidades de todos los ítems (no solo llantas), según la foto de <code>hec_inventario</code> del 21/10/2026.</p>
+
+  <div class="note warn"><strong>Revisar la lista de bodegas</strong>
+    <ul>
+      <li><strong>IKONIX usa los mismos códigos que las demás empresas, pero en IKONIX son otras bodegas.</strong> Se cuentan <code>07</code> MUESTRAS (282 unid.), <code>08</code> MARKETING GONZALEZ SUAREZ y <code>09</code> SERVICIO TECNICO, y no se cuenta <code>11</code> REPUESTOS (2,758 unid., 534 ítems).</li>
+      <li><strong>Bodega <code>50</code> TRANSITO:</strong> AUTOLLANTA tiene 8,177 unidades ahí que no entran en EN STOCK. Hay que confirmar si esa mercadería ya está en los tránsitos de <code>hec_transitos</code> o si se está quedando fuera del STOCK TOTAL.</li>
+      <li>Tampoco cuentan <code>99</code> IMPORTACIONES (996 unid. en AUTOLLANTA) ni MAXXIMUNDO <code>01</code> RETAIL, aunque AUTOLLANTA <code>01</code> RETAIL sí cuenta.</li>
+    </ul>
+  </div>
+
+  <h3>Catálogo de bodegas (<code>core.dim_bodegas</code>)</h3>
+  <p>Todas las bodegas registradas, por empresa. En verde, las que se toman en cuenta. En la tabla todas están activas (<code>bod_inactividad = 'N'</code>) y la ciudad está vacía.</p>
+  <details class="more"><summary>AUTOLLANTA · 21 bodegas · 7 se toman en cuenta</summary><div class="inner">
+<div class="table-wrap"><table>
+<tr><th>Código</th><th>Bodega</th><th class="num">Stock hoy (unid.)</th><th class="num">Ítems con stock</th><th class="c">DDMRP</th></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>01</code></td><td>RETAIL</td><td class="num">51,606</td><td class="num">1,173</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>02</code></td><td>CEDI CUE</td><td class="num">56,323</td><td class="num">522</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>03</code></td><td>PULMON</td><td class="num">13,102</td><td class="num">85</td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>04</code></td><td>GARANTIAS</td><td class="num">14</td><td class="num">10</td><td class="c muted">—</td></tr>
+<tr><td><code>05</code></td><td>REFURBISHED</td><td class="num">50</td><td class="num">5</td><td class="c muted">—</td></tr>
+<tr><td><code>06</code></td><td>OPEN BOX</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>07</code></td><td>CEDI GYQ</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>08</code></td><td>CEDI UIO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>09</code></td><td>CURTIEMBRE</td><td class="num">918</td><td class="num">11</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>10</code></td><td>PATAMARCA</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>11</code></td><td>TRADE MARKETING</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>12</code></td><td>SINIESTROS</td><td class="num">558</td><td class="num">6</td><td class="c muted">—</td></tr>
+<tr><td><code>13</code></td><td>CONTROL DE INVENTARIO</td><td class="num">5</td><td class="num">2</td><td class="c muted">—</td></tr>
+<tr><td><code>14</code></td><td>Bodega B2B</td><td class="num">4</td><td class="num">4</td><td class="c muted">—</td></tr>
+<tr><td><code>15</code></td><td>VAZ SEGUROS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>16</code></td><td>PRODUCTO B2B</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>17</code></td><td>MUESTRAS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>18</code></td><td>SERVICIO TECNICO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>19</code></td><td>REPUESTOS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>50</code></td><td>TRANSITO</td><td class="num">8,177</td><td class="num">68</td><td class="c muted">—</td></tr>
+<tr><td><code>99</code></td><td>IMPORTACIONES</td><td class="num">996</td><td class="num">17</td><td class="c muted">—</td></tr>
+</table></div>
+</div></details>
+<details class="more"><summary>MAXXIMUNDO · 22 bodegas · 6 se toman en cuenta</summary><div class="inner">
+<div class="table-wrap"><table>
+<tr><th>Código</th><th>Bodega</th><th class="num">Stock hoy (unid.)</th><th class="num">Ítems con stock</th><th class="c">DDMRP</th></tr>
+<tr><td><code>01</code></td><td>RETAIL</td><td class="num">75</td><td class="num">41</td><td class="c muted">—</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>02</code></td><td>CEDI CUE</td><td class="num">597,364</td><td class="num">1,079</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>03</code></td><td>PULMON</td><td class="num">10,585</td><td class="num">103</td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>04</code></td><td>GARANTIAS</td><td class="num">142</td><td class="num">12</td><td class="c muted">—</td></tr>
+<tr><td><code>05</code></td><td>REFURBISHED</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>06</code></td><td>OPEN BOX</td><td class="num">521</td><td class="num">46</td><td class="c muted">—</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>07</code></td><td>CEDI GYQ</td><td class="num">73,827</td><td class="num">16</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>08</code></td><td>CEDI UIO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>09</code></td><td>CURTIEMBRE</td><td class="num">1,691</td><td class="num">6</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>10</code></td><td>PATAMARCA</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>11</code></td><td>TRADE MARKETING</td><td class="num">1,319</td><td class="num">34</td><td class="c muted">—</td></tr>
+<tr><td><code>12</code></td><td>SINIESTROS</td><td class="num">233</td><td class="num">1</td><td class="c muted">—</td></tr>
+<tr><td><code>13</code></td><td>CONTROL DE INVENTARIO</td><td class="num">58</td><td class="num">17</td><td class="c muted">—</td></tr>
+<tr><td><code>14</code></td><td>MATERIAL PUBLICITARIO LLANTAS</td><td class="num">7,136</td><td class="num">123</td><td class="c muted">—</td></tr>
+<tr><td><code>15</code></td><td>VAZ SEGUROS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>16</code></td><td>PRODUCTO B2B</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>17</code></td><td>MUESTRAS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>18</code></td><td>SERVICIO TECNICO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>19</code></td><td>REPUESTOS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>20</code></td><td>ARCOLANDS</td><td class="num">48</td><td class="num">1</td><td class="c muted">—</td></tr>
+<tr><td><code>50</code></td><td>TRANSITO</td><td class="num">65</td><td class="num">9</td><td class="c muted">—</td></tr>
+<tr><td><code>99</code></td><td>IMPORTACIONES</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+</table></div>
+</div></details>
+<details class="more"><summary>STOX · 21 bodegas · 6 se toman en cuenta</summary><div class="inner">
+<div class="table-wrap"><table>
+<tr><th>Código</th><th>Bodega</th><th class="num">Stock hoy (unid.)</th><th class="num">Ítems con stock</th><th class="c">DDMRP</th></tr>
+<tr><td><code>01</code></td><td>RETAIL</td><td class="num">42</td><td class="num">25</td><td class="c muted">—</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>02</code></td><td>CEDI CUE</td><td class="num">42,385</td><td class="num">478</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>03</code></td><td>PULMON</td><td class="num">11,700</td><td class="num">64</td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>04</code></td><td>GARANTIAS</td><td class="num">1</td><td class="num">1</td><td class="c muted">—</td></tr>
+<tr><td><code>05</code></td><td>REFURBISHED</td><td class="num">2</td><td class="num">2</td><td class="c muted">—</td></tr>
+<tr><td><code>06</code></td><td>OPEN BOX</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>07</code></td><td>CEDI GYQ</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>08</code></td><td>CEDI UIO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>09</code></td><td>CURTIEMBRE</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>10</code></td><td>PATAMARCA</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>11</code></td><td>TRADE MARKETIG</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>12</code></td><td>SINIESTRO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>13</code></td><td>CONTROL DE INVENTARIO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>14</code></td><td>MATERIAL PUBLICITARIO LLANTAS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>15</code></td><td>VAZ SEGUROS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>16</code></td><td>PRODUCTO B2B</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>17</code></td><td>MUESTRAS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>18</code></td><td>SERVICIO TECNICO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>19</code></td><td>REPUESTOS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>50</code></td><td>TRANSITO</td><td class="num">6</td><td class="num">4</td><td class="c muted">—</td></tr>
+<tr><td><code>99</code></td><td>IMPORTACNIONES</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+</table></div>
+</div></details>
+<details class="more"><summary>IKONIX · 21 bodegas · 7 se toman en cuenta</summary><div class="inner">
+<div class="table-wrap"><table>
+<tr><th>Código</th><th>Bodega</th><th class="num">Stock hoy (unid.)</th><th class="num">Ítems con stock</th><th class="c">DDMRP</th></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>01</code></td><td>SHOW ROOM  VAN</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>02</code></td><td>CEDI CUE</td><td class="num">181,206</td><td class="num">1,023</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>03</code></td><td>PULMON</td><td class="num">2</td><td class="num">1</td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>04</code></td><td>GARANTIAS</td><td class="num">349</td><td class="num">107</td><td class="c muted">—</td></tr>
+<tr><td><code>05</code></td><td>REFURBISHED</td><td class="num">140</td><td class="num">82</td><td class="c muted">—</td></tr>
+<tr><td><code>06</code></td><td>OPEN BOX</td><td class="num">509</td><td class="num">200</td><td class="c muted">—</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>07</code></td><td>MUESTRAS</td><td class="num">282</td><td class="num">210</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>08</code></td><td>MARKETING GONZALEZ SUAREZ</td><td class="num">28</td><td class="num">7</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>09</code></td><td>SERVICIO TECNICO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>10</code></td><td>PATAMARCA</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>11</code></td><td>REPUESTOS</td><td class="num">2,758</td><td class="num">534</td><td class="c muted">—</td></tr>
+<tr><td><code>12</code></td><td>SINIESTROS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>13</code></td><td>CONTROL DE INVENTARIO</td><td class="num">129</td><td class="num">27</td><td class="c muted">—</td></tr>
+<tr><td><code>14</code></td><td>MATERIAL PUBLICITARIO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>15</code></td><td>VAZ SEGUROS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>16</code></td><td>PRODUCTO B2B</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>17</code></td><td>MUESTRAS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>18</code></td><td>SERVICIO TECNICO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>19</code></td><td>REPUESTOS</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>50</code></td><td>TRANSITO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>99</code></td><td>IMPORTACIONES</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+</table></div>
+</div></details>
+<details class="more"><summary>AUTOMAX · 7 bodegas · 5 se toman en cuenta</summary><div class="inner">
+<div class="table-wrap"><table>
+<tr><th>Código</th><th>Bodega</th><th class="num">Stock hoy (unid.)</th><th class="num">Ítems con stock</th><th class="c">DDMRP</th></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>01</code></td><td>ALMACÉN GENERAL</td><td class="num">21</td><td class="num">12</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>02</code></td><td>EXHIBICION</td><td class="num">66</td><td class="num">65</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>03</code></td><td>PULMON</td><td class="num">39,471</td><td class="num">686</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>04</code></td><td>CONSIGNACIÓN</td><td class="num">513</td><td class="num">77</td><td class="c ok">✓ cuenta</td></tr>
+<tr style="background:var(--c-dem-soft)"><td><code>05</code></td><td>LICITACIÓN</td><td class="num">33</td><td class="num">3</td><td class="c ok">✓ cuenta</td></tr>
+<tr><td><code>50</code></td><td>TRANSITO</td><td class="num"><span class=muted>0</span></td><td class="num"><span class=muted>0</span></td><td class="c muted">—</td></tr>
+<tr><td><code>99</code></td><td>IMPORTACIONES</td><td class="num">10</td><td class="num">1</td><td class="c muted">—</td></tr>
+</table></div>
+</div></details>
+
 </section>
 
 <!-- =========================================================================
@@ -922,7 +1067,7 @@ COMMIT;</code></pre>
      MASTER
      ========================================================================= -->
 <section class="doc" id="master">
-  <div class="sec-head"><div class="sec-num">9</div><div><h2>Cálculo en el master</h2><p class="lead">Una fila por ítem de <code>dim_item</code>. Primero se carga la tabla base y luego se ejecutan los 40 pasos de la lista <code>PASOS</code>. Aquí están agrupados por tema; el orden exacto de ejecución está en el desplegable de abajo. En el código, cada fórmula tiene su número: busca <code>[n]</code>.</p></div></div>
+  <div class="sec-head"><div class="sec-num">9</div><div><h2>Cálculo en el master</h2><p class="lead">Una fila por ítem de <code>dim_item</code>. Primero se carga la tabla base y luego se ejecutan los 41 pasos de la lista <code>PASOS</code>. Aquí están agrupados por tema; el orden exacto de ejecución está en el desplegable de abajo. En el código, cada fórmula tiene su número: busca <code>[n]</code>.</p></div></div>
 
   <details class="more"><summary>Orden exacto de ejecución (lista PASOS)</summary><div class="inner">
     <ol style="columns:2; column-gap:28px; font-size:13px; margin:6px 0">
@@ -934,7 +1079,7 @@ COMMIT;</code></pre>
       <li>[21] ZONA VERDE</li><li>[22] TAMAÑO BUFFER (TOG)</li><li>[23] FLUJO NETO (NFP)</li><li>[24] TAMAÑO PEDIDO</li><li>[25] NUEVO TAMAÑO PEDIDO</li>
       <li>[26] TAMAÑO 3 MESES INVENTARIO</li><li>NFP JP</li><li>PROD SIN VENTAS SIN STOCK</li><li>PROD CON STOCK SIN VENTAS</li><li>VALIDADOR</li>
       <li>PEDIDO SUGERIDO JP</li><li>[27] Costos y precio</li><li>[H2] P. LISTA de STOX → AUTOLLANTA</li><li>[28] P. LISTA VS ULT.COSTO</li>
-      <li>[29] Proveedor 1 y 2</li><li>[30] ULTIMA VENTA</li><li>[31] ULTIMA COMPRA</li>
+      <li>[29] Proveedor 1 y 2</li><li>[30] ULTIMA VENTA</li><li>[31] ULTIMA COMPRA</li><li>OBSERVACIONES</li>
     </ol>
     <p class="muted" style="font-size:12.5px">Cada paso usa columnas que ya calcularon los anteriores: por ejemplo, el ADU [12] se carga antes de las zonas [16]–[22], y los días [H1]/[H3] antes de las demandas [3]–[6].</p>
   </div></details>
@@ -1011,10 +1156,11 @@ COMMIT;</code></pre>
       <tr><td class="step">25</td><td class="col">NUEVO TAMAÑO PEDIDO</td><td>0 si MES INV TOTAL es mayor a 4; si no, TAMAÑO PEDIDO al par de arriba (7.3 → 8)</td></tr>
       <tr><td class="step">26</td><td class="col">TAMAÑO 3 MESES INVENTARIO</td><td>ADU × 90</td></tr>
       <tr><td class="step">JP</td><td class="col">NFP JP</td><td>par(STOCK TOTAL − ADU × DLT ÷ 3)</td></tr>
-      <tr><td class="step">JP</td><td class="col">PROD SIN VENTAS SIN STOCK</td><td>'REVISAR' si FLUJO NETO = 0 y STOCK TOTAL = 0, si no '0'</td></tr>
-      <tr><td class="step">JP</td><td class="col">PROD CON STOCK SIN VENTAS</td><td>'LIQUIDAR' si FLUJO NETO = 0 y STOCK PROYECTADO DLT ≠ 0, si no '0' (hoy nunca sale LIQUIDAR: ver pendiente nº 1)</td></tr>
+      <tr><td class="step">JP</td><td class="col">PROD SIN VENTAS SIN STOCK</td><td>'REVISAR' si TAMAÑO PEDIDO = 0 y STOCK TOTAL = 0, si no '0'</td></tr>
+      <tr><td class="step">JP</td><td class="col">PROD CON STOCK SIN VENTAS</td><td>'LIQUIDAR' si TAMAÑO PEDIDO = 0 y STOCK PROYECTADO DLT ≠ 0, si no '0'</td></tr>
       <tr><td class="step">JP</td><td class="col">VALIDADOR</td><td>TAMAÑO PEDIDO</td></tr>
-      <tr><td class="step">JP</td><td class="col">PEDIDO SUGERIDO JP</td><td>En este orden: par(TAMAÑO PEDIDO) si VALIDADOR &gt; 0 y NFP JP ≤ 0 · par(TAMAÑO PEDIDO − NFP JP) si TAMAÑO PEDIDO &gt; 0 y NFP JP &lt; TAMAÑO PEDIDO · '0' si TAMAÑO PEDIDO &gt; 0 y NFP JP &gt; TAMAÑO PEDIDO · en cualquier otro caso 'REVISAR' (también cuando TAMAÑO PEDIDO es 0). Columna de texto.</td></tr>
+      <tr><td class="step">JP</td><td class="col">PEDIDO SUGERIDO JP</td><td>En este orden: par(TAMAÑO PEDIDO) si VALIDADOR &gt; 0 y NFP JP ≤ 0 · par(TAMAÑO PEDIDO − NFP JP) si TAMAÑO PEDIDO &gt; 0 y NFP JP &lt; TAMAÑO PEDIDO · '0' en cualquier otro caso (también cuando TAMAÑO PEDIDO es 0). Columna de texto.</td></tr>
+      <tr><td class="step">OBS</td><td class="col">OBSERVACIONES</td><td>'INACTIVAR' si PROD SIN VENTAS SIN STOCK = 'REVISAR' · 'LIQUIDAR' si PROD CON STOCK SIN VENTAS = 'LIQUIDAR' · si no '-'. Es el último paso. Hoy: 5,666 INACTIVAR · 3,586 LIQUIDAR · 3,234 '-'.</td></tr>
     </table></div>
   </div>
 
@@ -1046,7 +1192,8 @@ COMMIT;</code></pre>
   </div></details>
 
   <details class="more"><summary>Letras del Excel de JP y su columna</summary><div class="inner">
-    <p>AT = STOCK TOTAL · AU = STOCK PROYECTADO DLT · AV = DLT · AY = ADU · BH = FLUJO NETO (NFP) · BI = TAMAÑO PEDIDO · BL = NFP JP · BO = VALIDADOR. <code>par()</code> hace lo mismo que <code>REDONDEA.PAR</code>: al par siguiente alejándose de 0. Validado contra <code>CALCULO_COLUMNAS.xlsx</code> en 5,629 filas.</p>
+    <p>AT = STOCK TOTAL · AU = STOCK PROYECTADO DLT · AV = DLT · AY = ADU · BI = TAMAÑO PEDIDO · BL = NFP JP · BO = VALIDADOR. <code>par()</code> hace lo mismo que <code>REDONDEA.PAR</code>: al par siguiente alejándose de 0.</p>
+    <p>Las fórmulas de PROD SIN VENTAS / PROD CON STOCK ahora usan <strong>BI</strong> (TAMAÑO PEDIDO) en lugar de BH (FLUJO NETO), y el último caso de PEDIDO SUGERIDO JP da '0' en lugar de 'REVISAR'. La validación contra <code>CALCULO_COLUMNAS.xlsx</code> (5,629 filas) se hizo con la versión anterior.</p>
   </div></details>
 </section>
 
@@ -1062,7 +1209,7 @@ COMMIT;</code></pre>
         <li>Grupos LLANTAS y LLANTAS MOTO, activos para compra y venta.</li>
         <li>MES INV TOTAL 9999 → <strong>INFINITO</strong>.</li>
         <li>Ordenado por BARRAS de la A a la Z.</li>
-        <li>Archivo: <code>Reporte de Pedidos (NEUMATICOS) (TODAS) (DD-MM-AAAA).xlsx</code> en una carpeta con la fecha.</li>
+        <li>Archivo: <code>Documents\REPORTES DDMRP\DD-MM-AAAA\Reporte de Pedidos (NEUMATICOS) (TODAS) (DD-MM-AAAA).xlsx</code> (la carpeta del día se crea sola).</li>
       </ul>
     </div>
     <div class="card">
@@ -1140,6 +1287,7 @@ COMMIT;</code></pre>
     <tr><td><code>core.hec_transitos</code> · <code>hec_facturas_reserva</code></td><td>Tránsitos de importación, pedidos y backorders</td><td>vista de tránsitos</td></tr>
     <tr><td><code>core.hec_importaciones</code> · <code>dim_socios</code></td><td>Proveedores y sus nombres</td><td>proveedor_item</td></tr>
     <tr><td><code>core.dim_vendedores</code></td><td>Categoría del vendedor</td><td>ventas_picos, vista de ventas</td></tr>
+    <tr><td><code>core.dim_bodegas</code></td><td>Catálogo de bodegas por empresa (código, nombre). Solo es referencia: los scripts tienen la lista de bodegas escrita en el código.</td><td>documentación (ver <a href="#bodegas">Bodegas</a>)</td></tr>
   </table></div>
 </section>
 
@@ -1152,7 +1300,8 @@ COMMIT;</code></pre>
     <span class="badge tec">técnico</span> ajuste de código ·
     <span class="badge dato">dato</span> corrección en SAP o en las tablas</p></div></div>
   <ol class="obs">
-    <li><span class="t">El FLUJO NETO resta la demanda del lead time</span> <span class="badge neg">negocio</span><br>NFP = STOCK TOTAL − ADU × DLT, igual que STOCK PROYECTADO DLT. Esa demanda ya está en la zona amarilla, así que se cuenta dos veces y el pedido sale más alto. Por lo mismo, LIQUIDAR nunca aparece.</li>
+    <li><span class="t">El FLUJO NETO resta la demanda del lead time</span> <span class="badge neg">negocio</span><br>NFP = STOCK TOTAL − ADU × DLT, igual que STOCK PROYECTADO DLT. Esa demanda ya está en la zona amarilla, así que se cuenta dos veces y el pedido sale más alto.</li>
+    <li><span class="t">LIQUIDAR marca también ítems que sí venden</span> <span class="badge neg">negocio</span><br>OBSERVACIONES = LIQUIDAR cuando TAMAÑO PEDIDO = 0 y hay stock proyectado. Pero TAMAÑO PEDIDO también es 0 cuando el ítem vende y simplemente tiene stock suficiente (FLUJO NETO por encima del TOG). Hoy 1,456 de los 3,586 LIQUIDAR tienen ADU mayor a 0. Si LIQUIDAR debe ser solo "con stock y sin ventas", conviene agregar la condición ADU = 0.</li>
     <li><span class="t">Regla de disparo del pedido</span> <span class="badge neg">negocio</span><br>Se pide cuando NFP ≤ TOG. En DDMRP es NFP ≤ TOY: en la zona verde no se pide.</li>
     <li><span class="t">Picos por día</span> <span class="badge neg">negocio</span><br>En ítems de venta irregular se marcan como pico muchas ventas normales (AU_2003841: 376 de 545 ventas son picos altos; ADU con picos 5.56, sin picos 1.72). Opciones: dejarlo, quitar solo el exceso, subir el umbral o detectar por semana.</li>
     <li><span class="t">Ventas duplicadas por nombres repetidos</span> <span class="badge tec">técnico</span><br>En <code>vw_ddmrp_ventas</code>, si dos ítems de una misma empresa tienen el mismo nombre, cada uno recibe la venta de los dos. Hoy: 55 nombres repetidos (122 ítems), 25 con ventas; ej. AU_2001284 y AU_2002786 con 296 cada uno, o 10 ítems "COMBO" de IKONIX con 66 cada uno. Afecta UN (#) - AÑO / 90D, demanda, MES INV TOTAL y última venta (el ADU no, porque sale de ventas_picos). Se arregla buscando el ítem destino solo en las ventas homologadas.</li>
@@ -1166,7 +1315,8 @@ COMMIT;</code></pre>
     <li><span class="t">Dos reglas de "4 unidades" que no coinciden</span> <span class="badge tec">técnico</span><br>Los días con inventario cuentan desde <strong>4</strong> unidades <strong>en una misma bodega</strong> (<code>inv_stock &gt; 3</code>), pero el paso [H3] pide <strong>más de 4</strong> en la <strong>suma de bodegas</strong> de hoy (<code>EN STOCK &gt; 4</code>). Un ítem con exactamente 4 unidades hoy cuenta para los días, pero no activa [H3].</li>
     <li><span class="t">365 frente a 366 días</span> <span class="badge tec">técnico</span><br>La vista de ventas incluye un día más que el ADU y los días con inventario. Por eso UN (#) - AÑO y las ventas del ADU pueden diferir un poco (ej. ATX_2001347: 426 en la vista, 422 en el ADU).</li>
     <li><span class="t">Lubricantes</span> <span class="badge tec">técnico</span><br>La vista los convierte a volumen; el ADU los cuenta en unidades.</li>
-    <li><span class="t">ULTIMA COMPRA en 01/01/2017</span> <span class="badge dato">dato</span><br>7,123 de 12,476 ítems tienen esa fecha en <code>dit_ultingreso</code>; parece un valor de relleno.</li>
+    <li><span class="t">ULTIMA COMPRA en 01/01/2017</span> <span class="badge dato">dato</span><br>Unos 7,100 ítems (más de la mitad) tienen esa fecha en <code>dit_ultingreso</code>; parece un valor de relleno.</li>
+    <li><span class="t">Lista de bodegas de IKONIX y bodega de tránsito</span> <span class="badge dato">dato</span><br>IKONIX usa los mismos códigos de bodega que las otras empresas, pero en IKONIX son otras bodegas: se cuentan 07 MUESTRAS, 08 MARKETING y 09 SERVICIO TECNICO, y no 11 REPUESTOS. Además, la bodega 50 TRANSITO de AUTOLLANTA (8,177 unid.) no entra en EN STOCK. Ver <a href="#bodegas">Bodegas</a>.</li>
     <li><span class="t">Tránsitos viejos de IKONIX</span> <span class="badge dato">dato</span><br>Órdenes abiertas desde hace más de un año inflan el STOCK TOTAL y reducen el pedido.</li>
     <li><span class="t">AUTOLLANTA guarda stock de otras marcas</span> <span class="badge neg">negocio</span><br>SHELL, MAXXIS, CST, ROADCRUZA y FARROAD: no se cuenta en la empresa que las planifica.</li>
   </ol>

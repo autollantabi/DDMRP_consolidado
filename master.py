@@ -179,6 +179,7 @@ COLUMNAS_CALCULADAS = [
     ('P. LISTA',                      'numeric(20,2) DEFAULT 0'),  # [27]
     ('P. LISTA VS ULT.COSTO',         'numeric(20,2)'),            # [28]
     ('ULTIMA VENTA',                  'date'),                     # [30]
+    ('OBSERVACIONES',                 'varchar'),                  # SQL_OBSERVACIONES
 ]
 
 # Columnas de versiones anteriores que ya no se usan: se borran si existen
@@ -597,16 +598,16 @@ UPDATE {TABLA}
 SET "NFP JP" = {redondea_par('("STOCK TOTAL" - (("ADU" * "DLT") / 3))')}
 """
 
-# FORMULA EXCEL '=SI(Y(BH2=0;AT2=0);"REVISAR";0)'
+# FORMULA '=SI(Y(BI2=0;AT2=0);"REVISAR";0)'
 SQL_PROD_SIN_VENTAS_SIN_STOCK = f"""
 UPDATE {TABLA}
-SET "PROD SIN VENTAS SIN STOCK" = CASE WHEN "FLUJO NETO (NFP)" = 0 AND "STOCK TOTAL" = 0 THEN 'REVISAR' ELSE '0' END
+SET "PROD SIN VENTAS SIN STOCK" = CASE WHEN "TAMAÑO PEDIDO" = 0 AND "STOCK TOTAL" = 0 THEN 'REVISAR' ELSE '0' END
 """
 
-# FORMULA EXCEL '=SI(Y(BH2=0;AU2<>0);"LIQUIDAR";0)'
+# FORMULA EXCEL '=SI(Y(BI2=0;AU2<>0);"LIQUIDAR";0)'
 SQL_PROD_CON_STOCK_SIN_VENTAS = f"""
 UPDATE {TABLA}
-SET "PROD CON STOCK SIN VENTAS" = CASE WHEN "FLUJO NETO (NFP)" = 0 AND "STOCK PROYECTADO DLT" <> 0 THEN 'LIQUIDAR' ELSE '0' END
+SET "PROD CON STOCK SIN VENTAS" = CASE WHEN "TAMAÑO PEDIDO" = 0 AND "STOCK PROYECTADO DLT" <> 0 THEN 'LIQUIDAR' ELSE '0' END
 """
 
 # FORMULA EXCEL '=SI(BI2<>0;BI2;0)'
@@ -622,7 +623,7 @@ SET "PEDIDO SUGERIDO JP" = CASE
     WHEN "VALIDADOR" > 0 AND "NFP JP" <= 0 THEN {redondea_par('"TAMAÑO PEDIDO"')}::text
     WHEN "TAMAÑO PEDIDO" > 0 AND "NFP JP" < "TAMAÑO PEDIDO" THEN {redondea_par('("TAMAÑO PEDIDO" - "NFP JP")')}::text
     WHEN "TAMAÑO PEDIDO" > 0 AND "NFP JP" > "TAMAÑO PEDIDO" THEN '0'
-    ELSE 'REVISAR'
+    ELSE '0'
 END
 """
 
@@ -713,6 +714,14 @@ FROM (
 WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
 """
 
+SQL_OBSERVACIONES = f"""
+UPDATE {TABLA}
+SET "OBSERVACIONES" = CASE
+    WHEN "PROD SIN VENTAS SIN STOCK" = 'REVISAR' THEN 'INACTIVAR'
+    WHEN "PROD CON STOCK SIN VENTAS" = 'LIQUIDAR' THEN 'LIQUIDAR'
+    ELSE '-'
+END
+"""
 
 # =============================================================================
 # PASOS: orden en que se ejecutan las fórmulas (cada una usa columnas de pasos anteriores)
@@ -759,6 +768,7 @@ PASOS = [
     ("[29] Proveedor 1 y 2",                      SQL_PROVEEDORES),
     ("[30] ULTIMA VENTA",                         SQL_ULT_VENTA),
     ("[31] ULTIMA COMPRA",                        SQL_ULT_COMPRA),
+    ("OBSERVACIONES",                             SQL_OBSERVACIONES),
 ]
 
 
