@@ -9,7 +9,11 @@ import pandas as pd
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Raíz del proyecto = carpeta donde está este script (DDMRP_consolidado)
+RAIZ_PROYECTO = Path(__file__).resolve().parent
+# config.py puede estar en la raíz o dentro de la carpeta "conection"
+sys.path.insert(0, str(RAIZ_PROYECTO))
+sys.path.insert(0, str(RAIZ_PROYECTO / "conection"))
 from config import get_engine_postgres_dwh
 
 # --- 1. CONSULTA SQL ---
@@ -23,7 +27,9 @@ select * from core.ddmrp where "GRUPO" in ('LLANTAS', 'LLANTAS MOTO') AND "ACTIV
 MARCAS  = "NEUMATICOS"
 EMPRESA = "TODAS"
 HOY     = date.today().strftime("%d-%m-%Y")
-CARPETA = Path(r"C:\Users\plituma\Documents\REPORTES DDMRP") / HOY
+# Carpeta "REPORTES DDMRP" en la raíz del proyecto (se crea solo si no existe)
+CARPETA_REPORTES = RAIZ_PROYECTO / "REPORTES DDMRP"
+CARPETA = CARPETA_REPORTES / HOY
 output_file = CARPETA / f"Reporte de Pedidos ({MARCAS}) ({EMPRESA}) ({HOY}).xlsx"
 
 # --- 3. COLUMNAS (nombres en core.ddmrp) ---
@@ -180,3 +186,4 @@ try:
 
 except Exception as e:
     print(f"Ocurrió un error durante el proceso: {e}")
+    raise  # muestra el traceback y sale con código 1 para que el .bat detecte el error
