@@ -190,24 +190,44 @@ COLUMNAS_VIEJAS = ["ADU CON PICOS", "ADU_90", "ADU60D", "COD_PROVEEDOR_IMP", "NO
 # FÓRMULAS: un bloque por columna, en el orden en que se ejecutan (ver PASOS)
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# HOMOLOGACIÓN comercializador -> importador: los ítems del comercializador que cumplen la
-# condición y su ítem del importador con el mismo nombre (DESCRIPCION). Las ventas ya se
-# pasan en vw_ddmrp_ventas, el ADU en ddmrp_ventas_picos.py y el stock en ddmrp_bodega.py;
-# aquí se pasan los días con inventario y el P. LISTA.
-#   ROADWING PESADO: comercializador STOX       -> importador AUTOLLANTA
-#   CST MOTO:        comercializador MAXXIMUNDO -> importador STOX
-# -----------------------------------------------------------------------------
-ROADWING_CONDICION = f'"PROPIEDAD" = \'{ROADWING_PROPIEDAD}\''
-CST_MOTO_ORIGEN    = "MAXXIMUNDO"
-CST_MOTO_DESTINO   = "STOX"
-CST_MOTO_CONDICION = '"MARCA" = \'CST\' AND "GRUPO" = \'LLANTAS MOTO\''   # misma regla que la vista
+# =============================================================================
+# HOMOLOGACIÓN IMPORTADOR / COMERCIALIZADOR  (aquí se cambia todo lo del master)
+# =============================================================================
+# Cada línea es un caso. Los ítems de las dos empresas se unen por el mismo nombre (DESCRIPCION).
+#   importador / comercializador: empresas de cada rol
+#   condicion:  qué ítems entran (columnas de core.ddmrp; se evalúa en la empresa de la que se copia)
+#   planifica:  "importador" o "comercializador": la fila que se planifica y que RECIBE los datos
+#   dias:       True = la fila que planifica toma también DIAS INV 1 AÑO y DIAS INV 90D de la otra
+#
+# Para agregar un caso o cambiar el comercializador, solo se cambia esta lista. Ojo: las ventas,
+# el ADU y el stock se pasan en otros scripts (vw_ddmrp_ventas, HOMOLOGACIONES de
+# ddmrp_ventas_picos.py y ddmrp_bodega.py); si cambia un caso hay que cambiarlo allá también.
+HOMOLOGACIONES = [
+    {"nombre": "ROADWING PESADO", "importador": ROADWING_DESTINO, "comercializador": ROADWING_ORIGEN,
+     "condicion": f"\"PROPIEDAD\" = '{ROADWING_PROPIEDAD}'",
+     "planifica": "importador", "dias": True},
+    {"nombre": "CST MOTO", "importador": "STOX", "comercializador": "MAXXIMUNDO",
+     "condicion": "\"MARCA\" = 'CST' AND \"GRUPO\" = 'LLANTAS MOTO'",          # misma regla que la vista
+     "planifica": "importador", "dias": True},
+    {"nombre": "IKONIX", "importador": "MAXXIMUNDO", "comercializador": "IKONIX",  # al revés
+     "condicion": '"MARCA" IN (' + ", ".join(f"'{m}'" for m in MARCA_PROVEEDOR_IKONIX) + ")",
+     "planifica": "comercializador", "dias": False},
+]
+
+# De qué rol sale cada columna de costo y precio (lo usa [H2])
+COLUMNAS_DEL_IMPORTADOR      = ["ULTIMO FOB"]
+COLUMNAS_DEL_COMERCIALIZADOR = ["COSTO PROM", "ULT. COSTO", "P. LISTA"]
+COLUMNAS_DIAS                = ["DIAS INV 1 AÑO", "DIAS INV 90D"]
 
 
-def sql_pasar(columnas, origen=ROADWING_ORIGEN, destino=ROADWING_DESTINO, condicion=ROADWING_CONDICION):
-    """UPDATE que copia columnas del ítem del comercializador (origen) al del importador (destino) con el mismo nombre."""
+def sql_pasar(columnas, origen, destino, condicion, solo_si_tiene=False):
+    """UPDATE que copia columnas del ítem de la empresa origen al de la empresa destino con el mismo nombre.
+    solo_si_tiene=True: si el origen está en 0 o vacío, el destino se queda con su valor."""
     select = ", ".join(f'MAX("{c}") AS "{c}"' for c in columnas)
-    sets = ", ".join(f'"{c}" = st."{c}"' for c in columnas)
+    if solo_si_tiene:
+        sets = ", ".join(f'"{c}" = COALESCE(NULLIF(st."{c}", 0), au."{c}")' for c in columnas)
+    else:
+        sets = ", ".join(f'"{c}" = st."{c}"' for c in columnas)
     return f"""
 UPDATE {TABLA} au
 SET {sets}
@@ -221,15 +241,24 @@ WHERE au."EMPRESA" = '{destino}' AND UPPER(TRIM(au."DESCRIPCION")) = st.nombre
 """
 
 
+def origen_destino(h):
+    """(origen, destino): el destino es la empresa que planifica; el origen, la otra."""
+    if h["planifica"] == "importador":
+        return h["comercializador"], h["importador"]
+    return h["importador"], h["comercializador"]
+
+
 # -----------------------------------------------------------------------------
-# [H1] DIAS INV 1 AÑO y DIAS INV 90D del importador = los del comercializador
-#      (el stock estuvo en el comercializador; va antes de [3]-[6], que usan estos días)
+# [H1] DIAS INV 1 AÑO y DIAS INV 90D: la empresa que planifica toma los de la otra
+#      (el stock estuvo allá; va antes de [3]-[6], que usan estos días). Solo casos con dias=True.
 #        ROADWING PESADO: AUTOLLANTA toma los días de STOX
 #        CST MOTO:        STOX toma los días de MAXXIMUNDO
 # -----------------------------------------------------------------------------
-SQL_DIAS_INV_DE_STOX = sql_pasar(["DIAS INV 1 AÑO", "DIAS INV 90D"])
-SQL_DIAS_INV_CST_MOTO = sql_pasar(["DIAS INV 1 AÑO", "DIAS INV 90D"],
-                                  CST_MOTO_ORIGEN, CST_MOTO_DESTINO, CST_MOTO_CONDICION)
+PASOS_H1_DIAS = [
+    (f"[H1] DIAS INV de {o} a {d} ({h['nombre']})", sql_pasar(COLUMNAS_DIAS, o, d, h["condicion"]))
+    for h in HOMOLOGACIONES if h["dias"]
+    for o, d in [origen_destino(h)]
+]
 
 # -----------------------------------------------------------------------------
 # [H3] Si EN STOCK > 4, cada columna de días que esté en 0 (o vacía) pasa a 1, por separado:
@@ -651,10 +680,23 @@ WHERE d."EMPRESA" = x.dit_empresa AND d."CODIGO_ITEM" = x.dit_codigo
 """
 
 # -----------------------------------------------------------------------------
-# [H2] P. LISTA de AUTOLLANTA = el de STOX   (COSTO PROM y ULT. COSTO se quedan los de
-#      AUTOLLANTA; va antes de [28] para que el margen se calcule con este precio)
+# [H2] Costos y precio según el rol (COLUMNAS_DEL_IMPORTADOR / COLUMNAS_DEL_COMERCIALIZADOR):
+#        ULTIMO FOB                          -> del IMPORTADOR
+#        COSTO PROM, ULT. COSTO, P. LISTA    -> del COMERCIALIZADOR
+#      La empresa que planifica solo toma de la otra las columnas que le tocan a la otra:
+#        ROADWING PESADO: AUTOLLANTA (importador) toma COSTO PROM, ULT. COSTO y P. LISTA de STOX
+#        CST MOTO:        STOX (importador) toma COSTO PROM, ULT. COSTO y P. LISTA de MAXXIMUNDO
+#        IKONIX (al revés): IKONIX (comercializador) toma el ULTIMO FOB de MAXXIMUNDO
+#      Si la otra empresa lo tiene en 0 o vacío, se queda el valor propio.
+#      Va antes de [28] para que el margen se calcule con estos valores.
 # -----------------------------------------------------------------------------
-SQL_PLISTA_DE_STOX = sql_pasar(["P. LISTA"])
+PASOS_H2_COSTOS = [
+    (f"[H2] {', '.join(cols)} de {o} a {d} ({h['nombre']})",
+     sql_pasar(cols, o, d, h["condicion"], solo_si_tiene=True))
+    for h in HOMOLOGACIONES
+    for o, d in [origen_destino(h)]
+    for cols in [COLUMNAS_DEL_COMERCIALIZADOR if h["planifica"] == "importador" else COLUMNAS_DEL_IMPORTADOR]
+]
 
 # -----------------------------------------------------------------------------
 # [28] P. LISTA VS ULT.COSTO = (P. LISTA - ULT. COSTO) / P. LISTA * 100
@@ -728,8 +770,7 @@ END
 # =============================================================================
 PASOS = [
     # n    columna que se calcula                 SQL                         parámetros
-    ("[H1] DIAS INV de STOX a AUTOLLANTA",       SQL_DIAS_INV_DE_STOX),
-    ("[H1] DIAS INV de MAXXIMUNDO a STOX (CST)", SQL_DIAS_INV_CST_MOTO),
+    *PASOS_H1_DIAS,                               # uno por caso de HOMOLOGACIONES con dias=True
     ("[H3] DIAS INV + 1 si EN STOCK > 4",         SQL_DIAS_INV_MAS_1),
     ("[1]  TOP",                                  SQL_TOP),
     ("[2]  STOCK TOTAL",                          SQL_STOCK_TOTAL),
@@ -763,7 +804,7 @@ PASOS = [
     ("VALIDADOR",                                 SQL_VALIDADOR),
     ("PEDIDO SUGERIDO JP",                        SQL_PEDIDO_SUGERIDO_JP),
     ("[27] Costos y precio",                      SQL_COSTOS),
-    ("[H2] P. LISTA de STOX a AUTOLLANTA",       SQL_PLISTA_DE_STOX),
+    *PASOS_H2_COSTOS,                             # uno por caso de HOMOLOGACIONES
     ("[28] P. LISTA VS ULT.COSTO",                SQL_PLISTA_VS_ULTCOSTO),
     ("[29] Proveedor 1 y 2",                      SQL_PROVEEDORES),
     ("[30] ULTIMA VENTA",                         SQL_ULT_VENTA),

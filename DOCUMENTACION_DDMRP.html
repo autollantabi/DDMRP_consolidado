@@ -314,12 +314,22 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
   .io { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; }
 }
+@page { size: A4; margin: 14mm 12mm; }
 @media print {
-  nav.side { display: none; }
-  .layout { grid-template-columns: 1fr; }
-  section.doc { break-inside: avoid-page; box-shadow: none; }
-  details.more { display: block; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  nav.side, .no-print { display: none !important; }
+  .layout { display: block; }
+  main { padding: 0; max-width: none; }
+  section.doc { box-shadow: none; margin: 0 0 14px; padding: 14px 16px; }
+  section.doc > .sec-head { break-after: avoid; }
+  h2, h3, h4 { break-after: avoid; }
+  tr, .card, .step-card, .note, pre { break-inside: avoid; }
+  .table-wrap { overflow: visible; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  pre, pre code { white-space: pre-wrap; word-break: break-word; }
+  details.more > summary { list-style: none; }
   .hero { background: none !important; color: var(--text); border: 1px solid var(--border); }
+  .hero code { background: none !important; color: var(--text) !important; }
   .hero .quick { display: none; }
 }
 </style>
@@ -364,6 +374,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
     <button class="btn" id="themeBtn" type="button">◐  Tema claro / oscuro</button>
     <button class="btn" id="openAll" type="button">▾  Desplegar todo el detalle</button>
     <button class="btn" id="closeAll" type="button">▴  Contraer todo el detalle</button>
+    <button class="btn" id="pdfBtn" type="button">⤓  Descargar en PDF</button>
   </div>
 </nav>
 
@@ -373,7 +384,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
      PORTADA
      ========================================================================= -->
 <header class="hero">
-  <div class="eyebrow">Documentación técnica · actualizada al 20/10/2026</div>
+  <div class="eyebrow">Documentación técnica · actualizada al 27/10/2026</div>
   <h1>Proceso DDMRP del Grupo Vii</h1>
   <p>Cómo se calcula, ítem por ítem y empresa por empresa, cuánto vender por día, cuánto tarda en llegar la mercadería, el tamaño del buffer y cuánto hay que pedir. Escrita a partir del código actual de la carpeta <code style="background:rgba(255,255,255,.18);color:#fff">Scripts/DDMRP</code>.</p>
   <div class="quick">
@@ -1216,7 +1227,7 @@ COMMIT;</code></pre>
       <div class="k">Estructura</div>
       <ul>
         <li>Ocultas: ACTIVO, ARTICULO_COMPRA, DIF. MAX AÑO vs TOT. AÑO.</li>
-        <li>Grupos: CODIGO_ITEM → PROV2 · LTF → VF · ADU SIN PICOS → TOG · NFP JP → VALIDADOR.</li>
+        <li>Grupos: CODIGO_ITEM → PROV2 · TRANSITO 15D → TRANSITO &gt;45D · Pedidos15D → Pedidos&gt;45D · Backorders_15D → Backorders&gt;30D · LTF → VF · ADU SIN PICOS → TOG · NFP JP → VALIDADOR.</li>
         <li>Hoja <strong>EXPLICACIÓN COLORES</strong> con la leyenda.</li>
       </ul>
     </div>
@@ -1374,6 +1385,28 @@ C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe export_excel.py</cod
     function todos(abrir) { document.querySelectorAll("details.more").forEach(function (d) { d.open = abrir; }); }
     document.getElementById("openAll").addEventListener("click", function () { todos(true); });
     document.getElementById("closeAll").addEventListener("click", function () { todos(false); });
+  })();
+
+  // Descargar en PDF: abre todo el detalle, usa el tema claro y abre el diálogo de impresión
+  // (en el diálogo elegir "Guardar como PDF"). Al cerrar vuelve todo como estaba.
+  (function () {
+    var root = document.documentElement, antes = null;
+    function preparar() {
+      if (antes) return;
+      antes = { tema: root.getAttribute("data-theme"),
+                abiertos: Array.prototype.map.call(document.querySelectorAll("details.more"), function (d) { return d.open; }) };
+      root.setAttribute("data-theme", "light");
+      document.querySelectorAll("details.more").forEach(function (d) { d.open = true; });
+    }
+    function restaurar() {
+      if (!antes) return;
+      if (antes.tema) root.setAttribute("data-theme", antes.tema); else root.removeAttribute("data-theme");
+      document.querySelectorAll("details.more").forEach(function (d, i) { d.open = antes.abiertos[i]; });
+      antes = null;
+    }
+    window.addEventListener("beforeprint", preparar);
+    window.addEventListener("afterprint", restaurar);
+    document.getElementById("pdfBtn").addEventListener("click", function () { preparar(); window.print(); });
   })();
 
   // Resaltar en el menú la sección visible

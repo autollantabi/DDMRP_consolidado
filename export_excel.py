@@ -68,7 +68,11 @@ COLOR_COLUMNAS = {
 # 7. columnas que se agrupan: cada línea agrupa desde su primera hasta su última columna
 #    (las del medio son solo de referencia; las columnas deben estar seguidas en el reporte)
 GRUPOS = [
-    ("CODIGO_ITEM", "CODIGO PROVEEDOR", "COD. PROV1", "PROV1", "COD. PROV2", "PROV2"),
+    #("CODIGO_ITEM", "CODIGO PROVEEDOR", "COD. PROV1", "PROV1", "COD. PROV2", "PROV2"),
+    ("CODIGO_ITEM", "PROV2"),
+    ("TRANSITO 15D", "TRANSITO >45D"),
+    ("Pedidos15D", "Pedidos>45D"),
+    ("Backorders_15D", "Backorders>30D"),
     ("LTF", "VF"),
     ("ADU SIN PICOS", "TAMAÑO BUFFER (TOG)"),
     ("NFP JP", "VALIDADOR"),                     # se salta si no están en core.ddmrp
