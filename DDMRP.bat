@@ -49,11 +49,67 @@ goto :fin_error
 call :log "Usando Python: %PYTHON%"
 echo.
 
+:: ------------------- QUE EJECUTAR -------------------
+:: Se elige con el menu, o se pasa la opcion al llamar el .bat (para el Programador de tareas):
+::   DDMRP.bat 1   ->  DDMRP LLANTAS               (master_llantas.py + export_excel_llantas.py)
+::   DDMRP.bat 2   ->  DDMRP LLANTAS MENSUALIZADO  (llantas_mes.py    + export_excel_llantas_mes.py)
+::   DDMRP.bat 3   ->  DDMRP LLANTAS CONSOLIDADO   (ddmrp_consolidado.py + export_excel_consolidado.py)
+::   DDMRP.bat 4   ->  TODOS: 1, 2 y 3 seguidos (tablas resumen y las 3 tablas finales actualizadas)
+set "OPCION=%~1"
+if "%OPCION%"=="1" goto :opcion_1
+if "%OPCION%"=="2" goto :opcion_2
+if "%OPCION%"=="3" goto :opcion_3
+if "%OPCION%"=="4" goto :opcion_4
+if not "%OPCION%"=="" call :log "Opcion '%OPCION%' no valida: se muestra el menu."
+
+echo ============================================================
+echo   Que DDMRP quieres ejecutar?
+echo.
+echo     1 = DDMRP LLANTAS               (tabla core.ddmrp_llantas)
+echo     2 = DDMRP LLANTAS MENSUALIZADO  (tabla core.ddmrp_llantas_mes)
+echo     3 = DDMRP LLANTAS CONSOLIDADO   (tabla core.ddmrp_llantas_consolidado)
+echo     4 = TODOS (1, 2 y 3 seguidos)
+echo ============================================================
+choice /c 1234 /n /m "Escribe 1, 2, 3 o 4: "
+if errorlevel 4 goto :opcion_4
+if errorlevel 3 goto :opcion_3
+if errorlevel 2 goto :opcion_2
+goto :opcion_1
+
 :: ------------------- PASOS -------------------
 :: Para agregar otro script copia una linea:  call :run_step "NOMBRE" "archivo.py" || goto :fin_error
-call :run_step "MAESTRO DDMRP"                "master.py"               || goto :fin_error
+:opcion_1
+call :log "Opcion elegida: 1 - DDMRP LLANTAS"
+call :run_step "MAESTRO DDMRP"                "master_llantas.py"               || goto :fin_error
 call :run_step "EXPORTAR EXCEL DDMRP LLANTAS" "export_excel_llantas.py" || goto :fin_error
+goto :fin_ok
+
+:opcion_2
+call :log "Opcion elegida: 2 - DDMRP LLANTAS MENSUALIZADO"
+call :run_step "DDMRP LLANTAS MENSUALIZADO"   "llantas_mes.py"                  || goto :fin_error
+call :run_step "EXPORTAR EXCEL DDMRP MENSUALIZADO" "export_excel_llantas_mes.py" || goto :fin_error
+goto :fin_ok
+
+:opcion_3
+call :log "Opcion elegida: 3 - DDMRP LLANTAS CONSOLIDADO"
+call :run_step "DDMRP LLANTAS CONSOLIDADO"    "ddmrp_consolidado.py"            || goto :fin_error
+call :run_step "EXPORTAR EXCEL DDMRP CONSOLIDADO" "export_excel_consolidado.py" || goto :fin_error
+goto :fin_ok
+
+:: Opcion 4: los 3 seguidos. Cada script actualiza primero las tablas resumen (tablas_resumen) y luego
+:: su tabla final; si uno falla, se detiene y no sigue con los demas.
+:opcion_4
+call :log "Opcion elegida: 4 - TODOS (1, 2 y 3)"
+call :run_step "MAESTRO DDMRP"                "master_llantas.py"               || goto :fin_error
+call :run_step "EXPORTAR EXCEL DDMRP LLANTAS" "export_excel_llantas.py" || goto :fin_error
+call :run_step "DDMRP LLANTAS MENSUALIZADO"   "llantas_mes.py"                  || goto :fin_error
+call :run_step "EXPORTAR EXCEL DDMRP MENSUALIZADO" "export_excel_llantas_mes.py" || goto :fin_error
+call :run_step "DDMRP LLANTAS CONSOLIDADO"    "ddmrp_consolidado.py"            || goto :fin_error
+call :run_step "EXPORTAR EXCEL DDMRP CONSOLIDADO" "export_excel_consolidado.py" || goto :fin_error
+goto :fin_ok
 :: ---------------------------------------------
+
+:fin_ok
 
 call :log "PROCESO COMPLETO SIN ERRORES."
 >>"%LOG_FILE%" echo.

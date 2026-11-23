@@ -92,7 +92,7 @@ def extraer(dias_1anio, dias_90d):
         FROM core.hec_inventario
         WHERE inv_fecha_subida >= %(desde_1a)s
           AND inv_fecha_subida <  %(hasta)s
-          AND inv_stock > 0
+          AND inv_stock > 3
           AND (inv_empresa, inv_codigo_bodega) IN %(bodegas)s
     """
     params = {"desde_90d": desde_90d, "desde_1a": desde_1a, "hasta": HASTA, "bodegas": bodegas}

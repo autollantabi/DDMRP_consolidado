@@ -34,7 +34,7 @@ PROCESOS = [
 ]
 
 PG_SCHEMA = "core"
-PG_TABLA  = "ddmrp"
+PG_TABLA  = "ddmrp_llantas"
 TABLA     = f"{PG_SCHEMA}.{PG_TABLA}"
 
 # Parámetros en core.ddmrp_parametros (ddmrp_valor_num) que usa este script
@@ -89,33 +89,16 @@ SELECT
 	f.segmento_final AS "CLASIF. PARETO",
 	b.dit_activo AS "ACTIVO",
 	b.dit_compra AS "ARTICULO_COMPRA",
-
-	--ROUND(a."365D"::numeric, 2) AS "UN (#) - AÑO",
     ROUND(COALESCE(a."365D", 0)::numeric, 2) AS "UN (#) - AÑO",
-
-	--ROUND(a.max_cantidad_anio::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
     ROUND(COALESCE(a.max_cantidad_anio, 0)::numeric, 2) AS "PICO ULT. AÑO X FACTURA",
-
-	--a.supera_umbral AS "DIF. MAX AÑO vs TOT. AÑO",
     COALESCE(a.supera_umbral, 'NO') AS "DIF. MAX AÑO vs TOT. AÑO",
-
-    --ROUND(c.ddmrp_stock_inv_1anio::numeric, 2) AS "DIAS INV 1 AÑO",
     ROUND(COALESCE(c.ddmrp_stock_inv_1anio, 0)::numeric, 2) AS "DIAS INV 1 AÑO",
-
 	0::numeric AS "DEMANDA MES - AÑO",   -- [3]
-
-	--ROUND(a."90D"::numeric, 2) AS "UN (#) - 90D",
     ROUND(COALESCE(a."90D", 0)::numeric, 2) AS "UN (#) - 90D",
-
-    --ROUND(c."ddmrp_stock_inv_90D"::numeric, 2) AS "DIAS INV 90D",
     ROUND(COALESCE(c."ddmrp_stock_inv_90D", 0)::numeric, 2) AS "DIAS INV 90D",
-    
 	0::numeric AS "DEMANDA MES 90D",     -- [4]
 	0::numeric AS "% VARIACIÓN DEMANDA",       -- [5]
-
-	--ROUND(a."MES"::numeric, 2) AS "UNIDADES MES ACTUAL",
     ROUND(COALESCE(a."MES", 0)::numeric, 2) AS "UNIDADES MES ACTUAL",
-
 	ROUND(d.sum::numeric, 2) AS "EN STOCK",
     ROUND((COALESCE(e."Transito15D", 0) + COALESCE(e."Transito30D", 0)
      + COALESCE(e."Transito45D", 0) + COALESCE(e."Transito>45D", 0))::numeric, 2) AS "TRANSITOS TOTAL",
@@ -150,6 +133,7 @@ LEFT JOIN (
 	FROM core.ddmrp_abc
 	GROUP BY empresa, codigo_item
 ) f ON b.dit_empresa = f.empresa AND b.dit_codigo = f.codigo_item
+WHERE b.dit_activo = 'SI' AND b.dit_compra = 'Y' AND b.dit_grupo IN ('LLANTAS', 'LLANTAS MOTO')
 """
 
 # Columnas que no están en SQL_DDMRP: se agregan a la tabla (en este orden) y se llenan con las fórmulas
@@ -195,7 +179,7 @@ COLUMNAS_VIEJAS = ["ADU CON PICOS", "ADU_90", "ADU60D", "COD_PROVEEDOR_IMP", "NO
 # =============================================================================
 # Cada línea es un caso. Los ítems de las dos empresas se unen por el mismo nombre (DESCRIPCION).
 #   importador / comercializador: empresas de cada rol
-#   condicion:  qué ítems entran (columnas de core.ddmrp; se evalúa en la empresa de la que se copia)
+#   condicion:  qué ítems entran (columnas de core.ddmrp_llantas; se evalúa en la empresa de la que se copia)
 #   planifica:  "importador" o "comercializador": la fila que se planifica y que RECIBE los datos
 #   dias:       True = la fila que planifica toma también DIAS INV 1 AÑO y DIAS INV 90D de la otra
 #
@@ -645,13 +629,14 @@ UPDATE {TABLA}
 SET "VALIDADOR" = CASE WHEN "TAMAÑO PEDIDO" <> 0 THEN "TAMAÑO PEDIDO" ELSE '0' END
 """
 
-# FORMULA EXCEL '=SI(Y(BO2>0;BL2<=0);REDONDEA.PAR(BI2);SI(Y(BI2>0;BL2<BI2);REDONDEA.PAR((BI2-BL2));SI(Y(BI2>0;BL2>BI2);0;"REVISAR")))'
+# FORMULA EXCEL '=SI(Y(BO2>0;BL2<=0);REDONDEA.PAR(BG2);SI(Y(BG2>0;BL2<BG2);REDONDEA.PAR((BG2-BL2));SI(Y(BG2>0;BL2>BG2);0;"REVISAR")))'
+#   BG = TAMAÑO BUFFER (TOG), BL = NFP JP, BO = VALIDADOR.  El último caso queda en '0' (no 'REVISAR').
 SQL_PEDIDO_SUGERIDO_JP = f"""
 UPDATE {TABLA}
 SET "PEDIDO SUGERIDO JP" = CASE
-    WHEN "VALIDADOR" > 0 AND "NFP JP" <= 0 THEN {redondea_par('"TAMAÑO PEDIDO"')}::text
-    WHEN "TAMAÑO PEDIDO" > 0 AND "NFP JP" < "TAMAÑO PEDIDO" THEN {redondea_par('("TAMAÑO PEDIDO" - "NFP JP")')}::text
-    WHEN "TAMAÑO PEDIDO" > 0 AND "NFP JP" > "TAMAÑO PEDIDO" THEN '0'
+    WHEN "VALIDADOR" > 0 AND "NFP JP" <= 0 THEN {redondea_par('"TAMAÑO BUFFER (TOG)"')}::text
+    WHEN "TAMAÑO BUFFER (TOG)" > 0 AND "NFP JP" < "TAMAÑO BUFFER (TOG)" THEN {redondea_par('("TAMAÑO BUFFER (TOG)" - "NFP JP")')}::text
+    WHEN "TAMAÑO BUFFER (TOG)" > 0 AND "NFP JP" > "TAMAÑO BUFFER (TOG)" THEN '0'
     ELSE '0'
 END
 """
@@ -814,10 +799,10 @@ PASOS = [
 
 
 # =============================================================================
-# CARGA de core.ddmrp (una sola transacción: si algo falla, la tabla queda como estaba)
+# CARGA de core.ddmrp_llantas (una sola transacción: si algo falla, la tabla queda como estaba)
 # =============================================================================
 def preparar_tabla(cur):
-    """Crea core.ddmrp si no existe y le agrega las columnas que falten. Devuelve las columnas de SQL_DDMRP."""
+    """Crea core.ddmrp_llantas si no existe y le agrega las columnas que falten. Devuelve las columnas de SQL_DDMRP."""
     cur.execute(f"CREATE TABLE IF NOT EXISTS {TABLA} AS {SQL_DDMRP} WITH NO DATA")
     # columnas y tipos del SELECT (tabla temporal vacía)
     cur.execute(f"CREATE TEMP TABLE tmp_ddmrp AS {SQL_DDMRP} WITH NO DATA")
@@ -837,7 +822,7 @@ def preparar_tabla(cur):
 
 
 def cargar_ddmrp():
-    """Borra los registros de core.ddmrp, inserta la tabla base y ejecuta las fórmulas en orden."""
+    """Borra los registros de core.ddmrp_llantas, inserta la tabla base y ejecuta las fórmulas en orden."""
     conn = psycopg2.connect(**POSTGRES)
     try:
         with conn:

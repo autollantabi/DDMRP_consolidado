@@ -354,6 +354,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
 
   <div class="nav-group">Cómo funciona</div>
   <a href="#flujo"><span class="dot"></span>Flujo de ejecución</a>
+  <a href="#reportes"><span class="dot"></span>Reportes y el .bat</a>
   <a href="#empresas"><span class="dot"></span>Empresas y códigos</a>
   <a href="#bodegas"><span class="dot"></span>Bodegas</a>
   <a href="#homologacion"><span class="dot"></span>Importador y comercializador</a>
@@ -363,6 +364,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
   <a href="#vistas"><span class="dot"></span>Vistas PostgreSQL</a>
   <a href="#master"><span class="dot"></span>Cálculo en el master</a>
   <a href="#excel"><span class="dot"></span>Reporte en Excel</a>
+  <a href="#v1"><span class="dot"></span>Consolidado v1 (ventana)</a>
   <a href="#parametros"><span class="dot"></span>Parámetros</a>
   <a href="#origen"><span class="dot"></span>Datos de origen</a>
 
@@ -384,9 +386,9 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
      PORTADA
      ========================================================================= -->
 <header class="hero">
-  <div class="eyebrow">Documentación técnica · actualizada al 27/10/2026</div>
+  <div class="eyebrow">Documentación técnica · actualizada al 23/11/2026</div>
   <h1>Proceso DDMRP del Grupo Vii</h1>
-  <p>Cómo se calcula, ítem por ítem y empresa por empresa, cuánto vender por día, cuánto tarda en llegar la mercadería, el tamaño del buffer y cuánto hay que pedir. Escrita a partir del código actual de la carpeta <code style="background:rgba(255,255,255,.18);color:#fff">Scripts/DDMRP</code>.</p>
+  <p>Cómo se calcula, ítem por ítem y empresa por empresa, cuánto vender por día, cuánto tarda en llegar la mercadería, el tamaño del buffer y cuánto hay que pedir. Escrita a partir del código actual. La misma lógica está en dos carpetas: <code style="background:rgba(255,255,255,.18);color:#fff">Scripts/DDMRP</code> (trabajo) y <code style="background:rgba(255,255,255,.18);color:#fff">GitHub/DDMRP_consolidado</code> (repositorio).</p>
   <div class="quick">
     <a href="#resumen">¿Cómo funciona?</a>
     <a href="#ejemplo">Ver un ejemplo</a>
@@ -399,17 +401,17 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
      EN UN MINUTO
      ========================================================================= -->
 <section class="doc" id="resumen">
-  <div class="sec-head"><div class="sec-num">1</div><div><h2>En un minuto</h2><p class="lead">El proceso corre con un solo comando (<code>master.py</code>) y deja una fila por ítem en la tabla <code>core.ddmrp</code>.</p></div></div>
+  <div class="sec-head"><div class="sec-num">1</div><div><h2>En un minuto</h2><p class="lead">Todo se corre con <code>DDMRP.bat</code> (menú de 4 opciones, ver <a href="#reportes">Reportes y el .bat</a>). El DDMRP normal (<code>master_llantas.py</code>) deja una fila por ítem de llantas en <code>core.ddmrp_llantas</code>; además están el <strong>mensualizado</strong> (<code>core.ddmrp_llantas_mes</code>), el <strong>consolidado</strong> (<code>core.ddmrp_llantas_consolidado</code>) y el programa con ventana <a href="#v1">consolidado v1</a>.</p></div></div>
 
   <div class="steps">
     <div class="step-card"><div class="n">1</div><div class="t">Leer datos</div><div class="d">Stock de SAP, ventas, inventario diario, tránsitos y pedidos del DWH.</div></div>
     <div class="step-card"><div class="n">2</div><div class="t">Resumir</div><div class="d">7 tablas resumen: stock, días con inventario, ADU, DLT, proveedor, TOP y ABC.</div></div>
     <div class="step-card"><div class="n">3</div><div class="t">Calcular</div><div class="d">41 fórmulas en orden: demanda, lead time, buffer, flujo neto, pedido y observaciones.</div></div>
-    <div class="step-card"><div class="n">4</div><div class="t">Reportar</div><div class="d"><code>export_excel.py</code> arma el reporte de pedidos con colores.</div></div>
+    <div class="step-card"><div class="n">4</div><div class="t">Reportar</div><div class="d"><code>export_excel_llantas.py</code> (y los del mensualizado y el consolidado) arma el reporte de pedidos con colores.</div></div>
   </div>
 
   <div class="grid g4" style="margin-top:14px">
-    <div class="card"><div class="k">Ítems calculados</div><div class="v">12,486</div><div class="s">uno por ítem del maestro (21/10/2026)</div></div>
+    <div class="card"><div class="k">Ítems calculados</div><div class="v">5,723</div><div class="s">llantas activas de compra (13/11/2026)</div></div>
     <div class="card"><div class="k">Empresas</div><div class="v">5</div><div class="s">AUTOLLANTA · MAXXIMUNDO · STOX · IKONIX · AUTOMAX</div></div>
     <div class="card"><div class="k">Ventana de análisis</div><div class="v">365 días</div><div class="s">y 90 días para la demanda reciente</div></div>
     <div class="card"><div class="k">Homologaciones</div><div class="v">3</div><div class="s">ROADWING pesado · CST moto · marcas de IKONIX</div></div>
@@ -503,19 +505,23 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
     <div class="pipe-arrow">→</div>
     <div class="pipe-col">
       <div class="pipe-title">Cálculo final</div>
-      <div class="pipe-box master"><b>master.py</b><span>tabla base + 41 pasos</span></div>
+      <div class="pipe-box master"><b>master_llantas.py</b><span>DDMRP normal · tabla base + 41 pasos</span></div>
+      <div class="pipe-box master"><b>llantas_mes.py</b><span>DDMRP mensualizado</span></div>
+      <div class="pipe-box master"><b>ddmrp_consolidado.py</b><span>une normal + mensualizado</span></div>
       <div class="pipe-box master"><b>vw_ddmrp_ventas</b><span>ventas por ítem</span></div>
       <div class="pipe-box master"><b>vw_ddmrp_trans_ped</b><span>tránsitos y pedidos</span></div>
     </div>
     <div class="pipe-arrow">→</div>
     <div class="pipe-col">
       <div class="pipe-title">Resultado</div>
-      <div class="pipe-box out"><b>core.ddmrp</b><span>1 fila por ítem</span></div>
-      <div class="pipe-box out"><b>export_excel.py</b><span>reporte de pedidos</span></div>
+      <div class="pipe-box out"><b>core.ddmrp_llantas</b><span>1 fila por ítem</span></div>
+      <div class="pipe-box out"><b>core.ddmrp_llantas_mes</b><span>mensualizado</span></div>
+      <div class="pipe-box out"><b>core.ddmrp_llantas_consolidado</b><span>consolidado</span></div>
+      <div class="pipe-box out"><b>export_excel_*.py</b><span>un Excel por tabla</span></div>
     </div>
   </div>
 
-  <div class="note warn"><strong>Si falla cualquiera de las 7 tablas resumen</strong>, se registra el error, <strong>no</strong> se actualiza <code>core.ddmrp</code> y el proceso termina con código 1. Así nunca se calcula con datos a medias.</div>
+  <div class="note warn"><strong>Si falla cualquiera de las 7 tablas resumen</strong>, se registra el error, <strong>no</strong> se actualiza <code>core.ddmrp_llantas</code> y el proceso termina con código 1. Así nunca se calcula con datos a medias.</div>
   <div class="note info">Cada carga ocurre en <strong>una sola transacción</strong>: si algo falla, la tabla conserva la corrida anterior y nunca queda vacía. Cada script también se puede correr solo (<code>python ddmrp_xxx.py</code>).</div>
 
   <details class="more"><summary>Cómo se carga cada tabla (patrón común)</summary><div class="inner">
@@ -529,11 +535,48 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
   </div></details>
 </section>
 
+
+<!-- =========================================================================
+     REPORTES Y EL .BAT
+     ========================================================================= -->
+<section class="doc" id="reportes">
+  <div class="sec-head"><div class="sec-num">5</div><div><h2>Reportes y el .bat</h2><p class="lead"><code>DDMRP.bat</code> muestra un menú con 4 opciones. También se le puede pasar el número (<code>DDMRP.bat 4</code>) para el Programador de tareas. Cada opción corre primero las 7 tablas resumen y luego su cálculo y su Excel; si un paso falla, se detiene y muestra dónde.</p></div></div>
+  <div class="table-wrap"><table>
+    <tr><th class="num">Opción</th><th>Reporte</th><th>Scripts</th><th>Tabla en el DWH</th><th>Excel (en <code>REPORTES DDMRP\DD-MM-AAAA\</code>)</th></tr>
+    <tr><td class="num">1</td><td><strong>DDMRP LLANTAS</strong> (normal)</td><td><code>master_llantas.py</code> + <code>export_excel_llantas.py</code></td><td><code>core.ddmrp_llantas</code></td><td>Reporte de Pedidos (NEUMATICOS) (TODAS) (DD-MM-AAAA).xlsx</td></tr>
+    <tr><td class="num">2</td><td><strong>DDMRP LLANTAS MENSUALIZADO</strong></td><td><code>llantas_mes.py</code> + <code>export_excel_llantas_mes.py</code></td><td><code>core.ddmrp_llantas_mes</code></td><td>Reporte de Pedidos Mensualizado (…).xlsx</td></tr>
+    <tr><td class="num">3</td><td><strong>DDMRP LLANTAS CONSOLIDADO</strong></td><td><code>ddmrp_consolidado.py</code> + <code>export_excel_consolidado.py</code></td><td><code>core.ddmrp_llantas_consolidado</code></td><td>Reporte de Pedidos Consolidado (…).xlsx</td></tr>
+    <tr><td class="num">4</td><td><strong>TODOS</strong></td><td>1, 2 y 3 seguidos</td><td>las 3 tablas</td><td>los 3 Excel</td></tr>
+  </table></div>
+
+  <div class="grid g3" style="margin-top:12px">
+    <div class="card">
+      <div class="k">1 · Normal</div>
+      <p>El cálculo de la sección <a href="#master">Cálculo en el master</a>: zonas roja, amarilla y verde, flujo neto y pedido. Solo entran ítems <strong>ACTIVO = 'SI'</strong>, <strong>ARTICULO_COMPRA = 'Y'</strong> y grupo <strong>LLANTAS</strong> o <strong>LLANTAS MOTO</strong> (filtro en la consulta base).</p>
+    </div>
+    <div class="card">
+      <div class="k">2 · Mensualizado</div>
+      <p>Fórmulas del Excel <em>DDMRP_GRUPOVI_LLANTAS_V16</em>: pide para tener en piso a lo más <strong>3 meses</strong> (CLASIF. PARETO A o B) o <strong>2 meses</strong> (el resto), más lo que cubre el DLT (meses de 30 días). Mismas tablas resumen y mismo filtro de ítems. Las homologaciones se cambian en la lista <code>HOMOLOGACIONES</code> de <code>llantas_mes.py</code>.</p>
+    </div>
+    <div class="card">
+      <div class="k">3 · Consolidado</div>
+      <p>Une el normal y el mensualizado en una sola tabla, con las columnas y el orden del Excel <em>REORDENADO_UNIFICADO.xlsx</em>. <strong>No tiene fórmulas propias</strong>: calcula los dos modelos en tablas temporales con los mismos datos y toma cada columna del que corresponde (lista <code>COLUMNAS</code>). No toca <code>core.ddmrp_llantas</code> ni <code>core.ddmrp_llantas_mes</code>.</p>
+    </div>
+  </div>
+
+  <div class="note info"><strong>Carpetas que se crean solas</strong> (no se copian ni se suben a GitHub):
+    <ul>
+      <li><code>logs\</code>: la crea el .bat. Tiene <code>log_actualizacion_ddmrp.txt</code> (historial de todas las corridas) y <code>_ultimo_paso.txt</code> (salida del último script).</li>
+      <li><code>REPORTES DDMRP\DD-MM-AAAA\</code>: la crea cada exportador; hay <strong>una carpeta por día</strong> de ejecución (no por mes).</li>
+    </ul></div>
+  <div class="note warn">Las tablas resumen se <strong>borran y se vuelven a cargar</strong> en cada corrida (<code>TRUNCATE</code> + <code>INSERT</code>), salvo <code>ddmrp_proveedores_dlt</code>, que solo se actualiza. Con la opción 4 se corren tres veces (una por reporte); el resultado es el mismo.</div>
+</section>
+
 <!-- =========================================================================
      EMPRESAS
      ========================================================================= -->
 <section class="doc" id="empresas">
-  <div class="sec-head"><div class="sec-num">5</div><div><h2>Empresas, bodegas y códigos</h2><p class="lead">Las empresas del grupo, todas sus bodegas y cuáles se toman en cuenta para el stock y los días con inventario.</p></div></div>
+  <div class="sec-head"><div class="sec-num">6</div><div><h2>Empresas, bodegas y códigos</h2><p class="lead">Las empresas del grupo, todas sus bodegas y cuáles se toman en cuenta para el stock y los días con inventario.</p></div></div>
 
   <h3>Empresas</h3>
   <div class="table-wrap"><table>
@@ -547,7 +590,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
   <div class="note warn"><strong>El número de ítem es propio de cada empresa.</strong> <code>2001112</code> es MAXXIS en MAXXIMUNDO, ROADWING en STOX y MAXTREK en AUTOLLANTA. Por eso <strong>todo cruce se hace por empresa + código</strong>, y entre empresas se relacionan por el <strong>nombre</strong> del ítem.</div>
   <div class="table-wrap"><table>
     <tr><th>Campo</th><th>Formato</th><th>Ejemplo</th></tr>
-    <tr><td><code>dim_item.dit_codigo</code>, <code>core.ddmrp."CODIGO_ITEM"</code></td><td>con prefijo</td><td><code>AU_2003841</code></td></tr>
+    <tr><td><code>dim_item.dit_codigo</code>, <code>core.ddmrp_llantas."CODIGO_ITEM"</code></td><td>con prefijo</td><td><code>AU_2003841</code></td></tr>
     <tr><td><code>dim_item.dit_identificador</code>, <code>ddmrp_inventario.ddmrp_item</code></td><td>sin prefijo</td><td><code>2003841</code></td></tr>
   </table></div>
 
@@ -698,7 +741,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
      HOMOLOGACIÓN
      ========================================================================= -->
 <section class="doc" id="homologacion">
-  <div class="sec-head"><div class="sec-num">6</div><div><h2>Importador y comercializador</h2><p class="lead">Cada marca se planifica en una sola empresa. Si otra empresa la compra, la vende o la guarda, sus datos se pasan a la empresa que planifica.</p></div></div>
+  <div class="sec-head"><div class="sec-num">7</div><div><h2>Importador y comercializador</h2><p class="lead">Cada marca se planifica en una sola empresa. Si otra empresa la compra, la vende o la guarda, sus datos se pasan a la empresa que planifica.</p></div></div>
 
   <h3>Las tres homologaciones</h3>
   <p>Dos van del <strong>comercializador al importador</strong> (se planifica en quien compra) y una va al revés, del <strong>importador al comercializador</strong> (se planifica en IKONIX, que vende).</p>
@@ -781,7 +824,7 @@ footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top:
      TABLAS RESUMEN
      ========================================================================= -->
 <section class="doc" id="resumenes">
-  <div class="sec-head"><div class="sec-num">7</div><div><h2>Tablas resumen</h2><p class="lead">Carpeta <code>tablas_resumen/</code>. Cada script prepara una tabla que después usa el master.</p></div></div>
+  <div class="sec-head"><div class="sec-num">8</div><div><h2>Tablas resumen</h2><p class="lead">Carpeta <code>tablas_resumen/</code>. Cada script prepara una tabla que después usa el master.</p></div></div>
 
   <!-- 1 BODEGA -->
   <div class="rcard" id="r-bodega">
@@ -903,7 +946,7 @@ Menos de 3 tramos o sin venta → no medible (CV 0)</div>
      VISTAS
      ========================================================================= -->
 <section class="doc" id="vistas">
-  <div class="sec-head"><div class="sec-num">8</div><div><h2>Vistas PostgreSQL</h2><p class="lead">Consultas guardadas en la base (esquema <code>core</code>) que el master lee directamente. Cada tarjeta tiene la consulta completa con la que se crea la vista; se puede copiar y ejecutar tal cual.</p></div></div>
+  <div class="sec-head"><div class="sec-num">9</div><div><h2>Vistas PostgreSQL</h2><p class="lead">Consultas guardadas en la base (esquema <code>core</code>) que el master lee directamente. Cada tarjeta tiene la consulta completa con la que se crea la vista; se puede copiar y ejecutar tal cual.</p></div></div>
 
   <div class="rcard">
     <div class="rcard-head"><span class="file">core.vw_ddmrp_ventas</span><span class="tag">1 fila por empresa + ítem con venta en el año</span><span class="tag">lee: hec_ventas · dim_item · dim_vendedores · ddmrp_parametros</span></div>
@@ -915,7 +958,7 @@ Menos de 3 tramos o sin venta → no medible (CV 0)</div>
         <dt>Parámetros</dt><dd>Días del año (id 1) y del período (id 2); si no están, usa 365 y 90. No filtra por <code>ddmrp_estado</code>.</dd>
       </dl>
       <div class="table-wrap"><table>
-        <tr><th>Columna de la vista</th><th>Cálculo</th><th>Columna en core.ddmrp</th></tr>
+        <tr><th>Columna de la vista</th><th>Cálculo</th><th>Columna en core.ddmrp_llantas</th></tr>
         <tr><td><code>365D</code></td><td>Suma del año (mínimo 0)</td><td>UN (#) - AÑO</td></tr>
         <tr><td><code>90D</code></td><td>Suma de los últimos 90 días contando hoy</td><td>UN (#) - 90D</td></tr>
         <tr><td><code>MES</code></td><td>Suma desde el día 1 del mes actual</td><td>UNIDADES MES ACTUAL</td></tr>
@@ -1005,7 +1048,7 @@ Menos de 3 tramos o sin venta → no medible (CV 0)</div>
 --
 -- Se hace DROP + CREATE porque CREATE OR REPLACE VIEW no permite quitar ni mover
 -- columnas. La vista no tiene dependientes y solo el dueño (admin) tiene permisos.
--- Ejecutar ANTES de correr master.py (el master ya lee las columnas nuevas).
+-- Ejecutar ANTES de correr master_llantas.py (el master ya lee las columnas nuevas).
 -- ============================================================================
 BEGIN;
 
@@ -1078,7 +1121,7 @@ COMMIT;</code></pre>
      MASTER
      ========================================================================= -->
 <section class="doc" id="master">
-  <div class="sec-head"><div class="sec-num">9</div><div><h2>Cálculo en el master</h2><p class="lead">Una fila por ítem de <code>dim_item</code>. Primero se carga la tabla base y luego se ejecutan los 41 pasos de la lista <code>PASOS</code>. Aquí están agrupados por tema; el orden exacto de ejecución está en el desplegable de abajo. En el código, cada fórmula tiene su número: busca <code>[n]</code>.</p></div></div>
+  <div class="sec-head"><div class="sec-num">10</div><div><h2>Cálculo en el master</h2><p class="lead"><code>master_llantas.py</code> → <code>core.ddmrp_llantas</code>. Una fila por ítem de <code>dim_item</code> que sea llanta (LLANTAS o LLANTAS MOTO), activa y de compra. Primero se carga la tabla base y luego se ejecutan los 41 pasos de la lista <code>PASOS</code>. Aquí están agrupados por tema; el orden exacto de ejecución está en el desplegable de abajo. En el código, cada fórmula tiene su número: busca <code>[n]</code>.</p></div></div>
 
   <details class="more"><summary>Orden exacto de ejecución (lista PASOS)</summary><div class="inner">
     <ol style="columns:2; column-gap:28px; font-size:13px; margin:6px 0">
@@ -1170,7 +1213,7 @@ COMMIT;</code></pre>
       <tr><td class="step">JP</td><td class="col">PROD SIN VENTAS SIN STOCK</td><td>'REVISAR' si TAMAÑO PEDIDO = 0 y STOCK TOTAL = 0, si no '0'</td></tr>
       <tr><td class="step">JP</td><td class="col">PROD CON STOCK SIN VENTAS</td><td>'LIQUIDAR' si TAMAÑO PEDIDO = 0 y STOCK PROYECTADO DLT ≠ 0, si no '0'</td></tr>
       <tr><td class="step">JP</td><td class="col">VALIDADOR</td><td>TAMAÑO PEDIDO</td></tr>
-      <tr><td class="step">JP</td><td class="col">PEDIDO SUGERIDO JP</td><td>En este orden: par(TAMAÑO PEDIDO) si VALIDADOR &gt; 0 y NFP JP ≤ 0 · par(TAMAÑO PEDIDO − NFP JP) si TAMAÑO PEDIDO &gt; 0 y NFP JP &lt; TAMAÑO PEDIDO · '0' en cualquier otro caso (también cuando TAMAÑO PEDIDO es 0). Columna de texto.</td></tr>
+      <tr><td class="step">JP</td><td class="col">PEDIDO SUGERIDO JP</td><td>En este orden: par(TAMAÑO BUFFER (TOG)) si VALIDADOR &gt; 0 y NFP JP ≤ 0 · par(TOG − NFP JP) si TOG &gt; 0 y NFP JP &lt; TOG · '0' en cualquier otro caso (antes decía 'REVISAR'). Columna de texto. <em>Usa el TOG desde el 09/11/2026; antes usaba TAMAÑO PEDIDO.</em></td></tr>
       <tr><td class="step">OBS</td><td class="col">OBSERVACIONES</td><td>'INACTIVAR' si PROD SIN VENTAS SIN STOCK = 'REVISAR' · 'LIQUIDAR' si PROD CON STOCK SIN VENTAS = 'LIQUIDAR' · si no '-'. Es el último paso. Hoy: 5,666 INACTIVAR · 3,586 LIQUIDAR · 3,234 '-'.</td></tr>
     </table></div>
   </div>
@@ -1203,7 +1246,7 @@ COMMIT;</code></pre>
   </div></details>
 
   <details class="more"><summary>Letras del Excel de JP y su columna</summary><div class="inner">
-    <p>AT = STOCK TOTAL · AU = STOCK PROYECTADO DLT · AV = DLT · AY = ADU · BI = TAMAÑO PEDIDO · BL = NFP JP · BO = VALIDADOR. <code>par()</code> hace lo mismo que <code>REDONDEA.PAR</code>: al par siguiente alejándose de 0.</p>
+    <p>AT = STOCK TOTAL · AU = STOCK PROYECTADO DLT · AV = DLT · AY = ADU · BG = TAMAÑO BUFFER (TOG) · BI = TAMAÑO PEDIDO · BL = NFP JP · BO = VALIDADOR. Fórmula de PEDIDO SUGERIDO JP: <code>=SI(Y(BO2&gt;0;BL2&lt;=0);REDONDEA.PAR(BG2);SI(Y(BG2&gt;0;BL2&lt;BG2);REDONDEA.PAR(BG2-BL2);SI(Y(BG2&gt;0;BL2&gt;BG2);0;0)))</code>. <code>par()</code> hace lo mismo que <code>REDONDEA.PAR</code>: al par siguiente alejándose de 0.</p>
     <p>Las fórmulas de PROD SIN VENTAS / PROD CON STOCK ahora usan <strong>BI</strong> (TAMAÑO PEDIDO) en lugar de BH (FLUJO NETO), y el último caso de PEDIDO SUGERIDO JP da '0' en lugar de 'REVISAR'. La validación contra <code>CALCULO_COLUMNAS.xlsx</code> (5,629 filas) se hizo con la versión anterior.</p>
   </div></details>
 </section>
@@ -1212,7 +1255,7 @@ COMMIT;</code></pre>
      EXCEL
      ========================================================================= -->
 <section class="doc" id="excel">
-  <div class="sec-head"><div class="sec-num">10</div><div><h2>Reporte en Excel</h2><p class="lead"><code>export_excel.py</code> aplica el <em>Manual Formato de Reporte de DDMRP</em>. Busca las columnas por nombre, así no se daña si cambia el orden.</p></div></div>
+  <div class="sec-head"><div class="sec-num">11</div><div><h2>Reporte en Excel</h2><p class="lead"><code>export_excel_llantas.py</code> aplica el <em>Manual Formato de Reporte de DDMRP</em>. Busca las columnas por nombre, así no se daña si cambia el orden. El mensualizado (<code>export_excel_llantas_mes.py</code>, formato de <em>DDMRP_GRUPOVI_LLANTAS_V16</em>) y el consolidado (<code>export_excel_consolidado.py</code>, formato de <em>REORDENADO_UNIFICADO.xlsx</em>) funcionan igual, cada uno con sus colores, grupos y columnas ocultas.</p></div></div>
   <div class="grid g2">
     <div class="card">
       <div class="k">Qué exporta</div>
@@ -1220,7 +1263,7 @@ COMMIT;</code></pre>
         <li>Grupos LLANTAS y LLANTAS MOTO, activos para compra y venta.</li>
         <li>MES INV TOTAL 9999 → <strong>INFINITO</strong>.</li>
         <li>Ordenado por BARRAS de la A a la Z.</li>
-        <li>Archivo: <code>Documents\REPORTES DDMRP\DD-MM-AAAA\Reporte de Pedidos (NEUMATICOS) (TODAS) (DD-MM-AAAA).xlsx</code> (la carpeta del día se crea sola).</li>
+        <li>Archivo: <code>REPORTES DDMRP\DD-MM-AAAA\Reporte de Pedidos (NEUMATICOS) (TODAS) (DD-MM-AAAA).xlsx</code>, dentro de la carpeta del proyecto (la carpeta del día se crea sola).</li>
       </ul>
     </div>
     <div class="card">
@@ -1254,11 +1297,71 @@ COMMIT;</code></pre>
   </div>
 </section>
 
+
+<!-- =========================================================================
+     CONSOLIDADO V1
+     ========================================================================= -->
+<section class="doc" id="v1">
+  <div class="sec-head"><div class="sec-num">12</div><div><h2>Consolidado v1 (programa con ventana)</h2><p class="lead">Carpeta <code>consolidado_v1/</code>. Hace <strong>todos los cálculos</strong> del Excel <em>Reporte de Pedidos Consolidado (final, revisado 12-11-2026)</em> (95 columnas) en una sola consulta y los muestra en una ventana. Es de <strong>solo lectura</strong>: no crea ni cambia tablas en el DWH. Lee las tablas resumen tal como están, así que conviene correr antes el .bat (opción 4).</p></div></div>
+
+<pre><code>C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe consolidado_v1\ddmrp_consolidado_v1.py</code></pre>
+
+  <div class="table-wrap"><table>
+    <tr><th>Archivo</th><th>Qué tiene</th></tr>
+    <tr><td><code>ddmrp_consolidado_v1.py</code></td><td>Se ejecuta este. Filtros del DDMRP, consulta de datos de origen (<code>SQL_ITEMS</code>), columnas del reporte en el orden del Excel, grupos, columnas ocultas, colores de fila, indicadores, filtros de la ventana y las 24 fórmulas de Excel del botón <em>Excel de validación</em> (<code>FORMULAS_EXCEL_VALIDACION</code>).</td></tr>
+    <tr><td><code>formulas_ddmrp_v1.sql</code></td><td><strong>Todas las fórmulas</strong> (62, en 11 pasos), una por columna. <strong>Aquí se cambia un cálculo.</strong></td></tr>
+    <tr><td><code>ddmrp_v1_motor.py</code></td><td>Lee el .sql y arma una consulta de solo lectura: <code>WITH paso_0 AS MATERIALIZED (…), paso_1 AS MATERIALIZED (…) … SELECT</code>. Cambia <code>PAR(x)</code> por la fórmula de REDONDEA.PAR. No se toca.</td></tr>
+    <tr><td><code>ddmrp_v1_ventana.py</code></td><td>La ventana (Qt / PySide6). Solo cómo se muestra.</td></tr>
+    <tr><td><code>ddmrp_v1_legible.py</code></td><td>Pestaña Cálculos: muestra cada fórmula del .sql como fórmula de Excel (<code>SI</code>, <code>Y</code>, <code>MAX</code>, <code>REDONDEA.PAR</code>, <code>[COLUMNA]</code>). Solo muestra, no calcula.</td></tr>
+    <tr><td><code>ddmrp_v1_excel.py</code></td><td>Botones <em>Exportar a Excel</em> y <em>Excel de validación</em>.</td></tr>
+  </table></div>
+
+  <div class="grid g2" style="margin-top:12px">
+    <div class="card">
+      <div class="k">Cómo cambiar una fórmula</div>
+      <ol>
+        <li>Abrir <code>formulas_ddmrp_v1.sql</code>. Cada paso empieza con <code>-- @PASO n · TÍTULO</code>; cada fórmula termina en <code>AS "COLUMNA",</code>. Las líneas con <code>--</code> son la explicación.</li>
+        <li>Cambiar solo la fórmula de esa columna. Una fórmula puede usar las columnas de los pasos <strong>anteriores</strong>. El diccionario Excel → SQL está al inicio del archivo.</li>
+        <li>En la ventana, botón <strong>⟳ Actualizar datos</strong>: vuelve a leer los datos y las fórmulas, sin cerrar el programa. Si hay un error, lo dice con el número de línea y deja los datos de antes.</li>
+      </ol>
+      <p class="muted">Se calcula con <strong>todos los decimales</strong>; solo se redondea donde la fórmula lo dice. El selector <em>Decimales</em> (2 · 4 · Todos) solo cambia cómo se ve.</p>
+    </div>
+    <div class="card">
+      <div class="k">La ventana</div>
+      <ul>
+        <li><strong>Barra de arriba</strong>: <em>DATOS AL</em> (fecha y hora de la lectura), botón <em>Actualizar datos</em> y los filtros fijos.</li>
+        <li><strong>Datos del ítem</strong>: indicadores (ítems mostrados, ítems con pedido a piso, PEDIDO AJUSTADO DDMRP, PEDIDO AJUSTADO DDMRP JP, PEDIDO SUGERIDO AJUSTADO A PISO), buscador, 8 filtros (los activos en amarillo), columnas ancladas hasta <code>ANT.</code>, grupos <code>[+]</code>/<code>[-]</code> como en Excel, colores de fila y clic en el encabezado para ordenar.</li>
+        <li><strong>Filtros</strong>: cuántos ítems deja cada filtro fijo, los filtros puestos (✕ para quitarlos) y la consulta SQL completa para copiar a pgAdmin.</li>
+        <li><strong>Cálculos</strong>: cada columna con su explicación, su fórmula al estilo Excel, un <strong>ejemplo con los valores de un ítem</strong>, qué columnas usa y dónde se usa.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:12px">
+    <div class="card">
+      <div class="k">Exportar a Excel</div>
+      <p>Guarda lo que se ve (filtros y orden actuales) con el formato del Excel final: fila 1 con SUBTOTAL, colores, formatos, grupos, columnas ancladas hasta <code>ANT.</code> y hoja EXPLICACIÓN COLORES con la fecha de los datos. Los números van con todos los decimales.</p>
+    </div>
+    <div class="card">
+      <div class="k">Excel de validación</div>
+      <p>El mismo Excel, pero las <strong>24 columnas</strong> que en el Excel original son fórmulas van como fórmulas de Excel, más la hoja <strong>VALIDACIÓN</strong> (OK / DIF por ítem y columna) y la hoja VALORES PROGRAMA. Prueba del 13/11/2026 (5,723 ítems): 21 columnas iguales; las 73 diferencias son todas de <code>REDONDEA.PAR</code> en Excel, que da 2 unidades más por su redondeo interno (ej. 3 × 1.7777… × 30 = 160 exacto; Excel lo ve como 160.0000000001 y sube a 162).</p>
+    </div>
+  </div>
+
+  <div class="note warn"><strong>Pendientes del v1</strong> (por confirmar):
+    <ul>
+      <li>Quitar el <code>ROUND(…, 2)</code> de los costos y del DLT promedio de proveedor en <code>SQL_ITEMS</code>.</li>
+      <li><code>ddmrp_ventas_picos</code> guarda CV y ADU con 2 decimales: cambia el VF de 28 ítems con CV justo en 0.50 / 1.00.</li>
+      <li>Fórmulas del Excel: MESES X PEDIR PARA PISO da el piso completo aunque sobre stock; las zonas mezclan ADU BASE (roja y amarilla) y ADU 90 DÍAS (verde); casos "E" / #¡VALOR!.</li>
+      <li>Todavía no guarda una tabla en el DWH: se hará cuando se dé por lista.</li>
+    </ul></div>
+</section>
+
 <!-- =========================================================================
      PARÁMETROS
      ========================================================================= -->
 <section class="doc" id="parametros">
-  <div class="sec-head"><div class="sec-num">11</div><div><h2>Parámetros</h2><p class="lead">En <code>core.ddmrp_parametros</code>. Se cambian ahí, sin tocar código. Los scripts de las tablas resumen leen solo los activos (<code>ddmrp_estado = 1</code>) y se detienen si falta uno; el master y la vista de ventas los leen sin mirar el estado.</p></div></div>
+  <div class="sec-head"><div class="sec-num">13</div><div><h2>Parámetros</h2><p class="lead">En <code>core.ddmrp_parametros</code>. Se cambian ahí, sin tocar código. Los scripts de las tablas resumen leen solo los activos (<code>ddmrp_estado = 1</code>) y se detienen si falta uno; el master y la vista de ventas los leen sin mirar el estado.</p></div></div>
   <div class="table-wrap"><table>
     <tr><th class="num">id</th><th>Parámetro</th><th class="num">Valor</th><th>Para qué</th></tr>
     <tr><td class="num">1</td><td>Ventas 1 año</td><td class="num">365</td><td>Ventana anual de ventas y días con stock</td></tr>
@@ -1274,12 +1377,12 @@ COMMIT;</code></pre>
     <div class="table-wrap"><table>
       <tr><th>Archivo</th><th>Valor</th><th>Uso</th></tr>
       <tr><td><code>ddmrp_inventario.py</code></td><td><code>inv_stock &gt; 3</code></td><td>Un día cuenta con inventario si alguna bodega tuvo 4 o más unidades</td></tr>
-      <tr><td><code>master.py</code> [H3]</td><td><code>EN STOCK &gt; 4</code></td><td>Si hay más de 4 unidades hoy, los días en 0 pasan a 1</td></tr>
+      <tr><td><code>master_llantas.py</code> [H3]</td><td><code>EN STOCK &gt; 4</code></td><td>Si hay más de 4 unidades hoy, los días en 0 pasan a 1</td></tr>
       <tr><td><code>ddmrp_ventas_picos.py</code></td><td>Mayoreo / B2B · 4 RUC excluidos</td><td>Ventas que cuentan</td></tr>
       <tr><td><code>ddmrp_ventas_picos.py</code></td><td>12 tramos · mínimo 3</td><td>Cálculo del CV</td></tr>
       <tr><td><code>ddmrp_abc.py</code></td><td>20 / 30 / 50 % · cortes 80 % y 95 %</td><td>Clasificación ABC</td></tr>
-      <tr><td><code>master.py</code></td><td>60 / 100 días</td><td>Tramos del LTF</td></tr>
-      <tr><td><code>master.py</code></td><td>4 meses · 90 días</td><td>NUEVO TAMAÑO PEDIDO · TAMAÑO 3 MESES</td></tr>
+      <tr><td><code>master_llantas.py</code></td><td>60 / 100 días</td><td>Tramos del LTF</td></tr>
+      <tr><td><code>master_llantas.py</code></td><td>4 meses · 90 días</td><td>NUEVO TAMAÑO PEDIDO · TAMAÑO 3 MESES</td></tr>
       <tr><td><code>vw_ddmrp_ventas</code></td><td>40 %</td><td>DIF. MAX AÑO vs TOT. AÑO</td></tr>
     </table></div>
   </div></details>
@@ -1289,7 +1392,7 @@ COMMIT;</code></pre>
      DATOS DE ORIGEN
      ========================================================================= -->
 <section class="doc" id="origen">
-  <div class="sec-head"><div class="sec-num">12</div><div><h2>Datos de origen</h2><p class="lead">Ya no se lee SQL Server en el proceso diario: todo sale de PostgreSQL, salvo el stock actual que sale de SAP HANA.</p></div></div>
+  <div class="sec-head"><div class="sec-num">14</div><div><h2>Datos de origen</h2><p class="lead">Ya no se lee SQL Server en el proceso diario: todo sale de PostgreSQL, salvo el stock actual que sale de SAP HANA.</p></div></div>
   <div class="table-wrap"><table>
     <tr><th>Tabla</th><th>Contenido</th><th>Lo usa</th></tr>
     <tr><td><code>core.hec_inventario</code></td><td>Foto diaria del stock por empresa + ítem + bodega (~72 millones de filas). Historial cargado desde el DWH y días faltantes rellenados con el día anterior; carga diaria desde el 04/09/2026.</td><td>ddmrp_inventario</td></tr>
@@ -1306,7 +1409,7 @@ COMMIT;</code></pre>
      PENDIENTES
      ========================================================================= -->
 <section class="doc" id="pendientes">
-  <div class="sec-head"><div class="sec-num">13</div><div><h2>Observaciones y pendientes</h2><p class="lead">
+  <div class="sec-head"><div class="sec-num">15</div><div><h2>Observaciones y pendientes</h2><p class="lead">
     <span class="badge neg">negocio</span> decisión de criterio ·
     <span class="badge tec">técnico</span> ajuste de código ·
     <span class="badge dato">dato</span> corrección en SAP o en las tablas</p></div></div>
@@ -1337,19 +1440,35 @@ COMMIT;</code></pre>
      EJECUTAR Y MANTENER
      ========================================================================= -->
 <section class="doc" id="mantener">
-  <div class="sec-head"><div class="sec-num">14</div><div><h2>Ejecutar y mantener</h2><p class="lead">Usar el Python del entorno virtual: el del sistema no tiene <code>pyodbc</code> ni <code>hdbcli</code>.</p></div></div>
-<pre><code>C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe master.py
-C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe export_excel.py</code></pre>
+  <div class="sec-head"><div class="sec-num">16</div><div><h2>Ejecutar y mantener</h2><p class="lead">Lo normal es <code>DDMRP.bat</code> (busca solo el Python del entorno virtual). Para correr un script suelto, usar el Python del entorno virtual: el del sistema no tiene <code>hdbcli</code> ni <code>PySide6</code>.</p></div></div>
+<pre><code>DDMRP.bat                 (menú 1 · 2 · 3 · 4)
+DDMRP.bat 4               (todo, sin preguntar: para el Programador de tareas)
+C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe master_llantas.py
+C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe consolidado_v1\ddmrp_consolidado_v1.py</code></pre>
+
+  <h3>Las dos carpetas</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>Scripts\DDMRP</code> (trabajo)</th><th><code>GitHub\DDMRP_consolidado</code> (repositorio)</th></tr>
+    <tr><td>Lógica</td><td colspan="2">La misma: mismos scripts, fórmulas, tablas resumen, .bat y consolidado v1.</td></tr>
+    <tr><td>Rutas</td><td>Los exportadores y la ventana v1 guardan en <code>C:\Users\plituma\Documents\Scripts\DDMRP\REPORTES DDMRP</code>. El .bat usa esa carpeta fija.</td><td>Todo es relativo a la carpeta del proyecto (el .bat usa <code>%~dp0</code>): funciona copiado en cualquier carpeta.</td></tr>
+    <tr><td>Conexión</td><td>Tablas resumen y cálculos: <code>conection\config.py</code>. Exportadores: <code>C:\Users\plituma\Documents\Scripts\config.py</code> (fuera de la carpeta).</td><td>Todo usa <code>conection\config.py</code>, que no se sube a GitHub (tiene las claves): se crea copiando <code>config_example.py</code> y llenando los datos.</td></tr>
+    <tr><td>Librerías</td><td colspan="2"><code>requirements.txt</code> (incluye SQLAlchemy y PySide6-Essentials): <code>python -m pip install -r requirements.txt</code></td></tr>
+    <tr><td>No se copian</td><td colspan="2"><code>logs\</code> y <code>REPORTES DDMRP\</code> (se crean solas y están en <code>.gitignore</code>), <code>__pycache__</code>, y el respaldo <code>consolidado_v1\ddmrp_v1_ventana_tk.py</code> (solo en Scripts).</td></tr>
+  </table></div>
 
   <h3>¿Dónde cambio…?</h3>
   <div class="table-wrap"><table>
     <tr><th>Quiero…</th><th>Dónde</th></tr>
-    <tr><td>Agregar o mover una columna</td><td><code>SQL_DDMRP</code> o <code>COLUMNAS_CALCULADAS</code> en <code>master.py</code>, y luego <code>DROP TABLE core.ddmrp;</code></td></tr>
+    <tr><td>Agregar o mover una columna</td><td><code>SQL_DDMRP</code> o <code>COLUMNAS_CALCULADAS</code> en <code>master_llantas.py</code> (o <code>llantas_mes.py</code>), y luego <code>DROP TABLE core.ddmrp_llantas;</code> (o <code>core.ddmrp_llantas_mes</code>)</td></tr>
+    <tr><td>Cambiar una fórmula del consolidado v1</td><td><code>consolidado_v1\formulas_ddmrp_v1.sql</code> y botón <em>Actualizar datos</em></td></tr>
+    <tr><td>Cambiar las columnas, grupos, colores o filtros de la ventana v1</td><td>Sección 3 de <code>consolidado_v1\ddmrp_consolidado_v1.py</code></td></tr>
+    <tr><td>Cambiar qué columnas toma el consolidado de cada modelo</td><td>Lista <code>COLUMNAS</code> en <code>ddmrp_consolidado.py</code></td></tr>
+    <tr><td>Agregar un reporte al .bat</td><td>Una línea <code>call :run_step "NOMBRE" "archivo.py" || goto :fin_error</code> en la opción que corresponda</td></tr>
     <tr><td>Agregar una fórmula</td><td>Un bloque <code>SQL_…</code> y una línea en <code>PASOS</code> (si no está en <code>PASOS</code>, no se calcula)</td></tr>
     <tr><td>Agregar una homologación</td><td>Vista de ventas · <code>HOMOLOGACIONES</code> en ventas_picos · <code>ddmrp_bodega.py</code> · pasos <code>[H1]</code> / <code>[H2]</code> del master</td></tr>
     <tr><td>Cambiar días, factores o umbral</td><td><code>core.ddmrp_parametros</code></td></tr>
     <tr><td>Agregar un proveedor con DLT</td><td>Cargar sus tiempos en <code>core.ddmrp_proveedores_dlt</code></td></tr>
-    <tr><td>Cambiar el formato del Excel</td><td>Bloques de configuración al inicio de <code>export_excel.py</code></td></tr>
+    <tr><td>Cambiar el formato del Excel</td><td>Bloques de configuración al inicio de <code>export_excel_llantas.py</code> (o <code>export_excel_llantas_mes.py</code> / <code>export_excel_consolidado.py</code>)</td></tr>
   </table></div>
 
   <div class="note warn"><strong>Errores comunes</strong>
@@ -1362,7 +1481,7 @@ C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe export_excel.py</cod
   </div>
 </section>
 
-<footer>Documentación DDMRP · Grupo Vii · actualizada al 20/10/2026</footer>
+<footer>Documentación DDMRP · Grupo Vii · actualizada al 23/11/2026</footer>
 </main>
 </div>
 

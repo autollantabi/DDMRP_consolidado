@@ -1,671 +1,396 @@
-# Documentación técnica – Proceso DDMRP
+# Documentación técnica – Proceso DDMRP del Grupo Vii
 
-> Carpeta: `Documents/Scripts/DDMRP`
-> Documento generado a partir del código de los scripts, de las vistas de PostgreSQL que usan
-> (`pg_get_viewdef`) y de la tabla `core.ddmrp_parametros` (valores vigentes al 27/09/2026).
-> Los ejemplos numéricos son datos reales de `core.ddmrp` (ítem `MA_2000050`).
+> Actualizada al **23/11/2026**, a partir del código actual.
+> La misma lógica está en dos carpetas: `Documents\Scripts\DDMRP` (trabajo) y
+> `Documents\GitHub\DDMRP_consolidado` (repositorio). Ver [Las dos carpetas](#13-ejecutar-y-mantener).
+> La versión completa, con ejemplos, diagramas y las consultas de las vistas, es **`DOCUMENTACION_DDMRP.html`**
+> (en Scripts también está en PDF).
 
 ---
 
 ## Índice
 
-1. [Visión general y flujo](#1-visión-general-y-flujo)
-2. [Parámetros (`core.ddmrp_parametros`)](#2-parámetros-coreddmrp_parametros)
-3. [`conection/config.py`](#3-conectionconfigpy)
-4. [`ddmrp_bodega.py` → `core.ddmrp_bodegas`](#4-ddmrp_bodegapy--coreddmrp_bodegas)
-5. [`ddmrp_inventario.py` → `core.ddmrp_inventario`](#5-ddmrp_inventariopy--coreddmrp_inventario)
-6. [`ddmrp_ventas_picos.py` → `core.ddmrp_ventas_picos`](#6-ddmrp_ventas_picospy--coreddmrp_ventas_picos)
-7. [`ddmrp_proveedores.py` → `core.ddmrp_proveedores`](#7-ddmrp_proveedorespy--coreddmrp_proveedores)
-8. [Vistas de PostgreSQL usadas por el master](#8-vistas-de-postgresql-usadas-por-el-master)
-9. [`master.py` → `core.ddmrp` (tabla final, campo por campo)](#9-masterpy--coreddmrp-tabla-final-campo-por-campo)
-10. [Ejemplo completo paso a paso (MA_2000050)](#10-ejemplo-completo-paso-a-paso-ma_2000050)
-11. [Observaciones y puntos a revisar](#11-observaciones-y-puntos-a-revisar)
+1. [En un minuto](#1-en-un-minuto)
+2. [Glosario](#2-glosario)
+3. [Reportes y el .bat](#3-reportes-y-el-bat)
+4. [Flujo de ejecución](#4-flujo-de-ejecución)
+5. [Importador y comercializador (homologaciones)](#5-importador-y-comercializador-homologaciones)
+6. [Tablas resumen](#6-tablas-resumen)
+7. [Vistas PostgreSQL](#7-vistas-postgresql)
+8. [Cálculo en el master (`master_llantas.py`)](#8-cálculo-en-el-master-master_llantaspy)
+9. [Reportes en Excel](#9-reportes-en-excel)
+10. [Consolidado v1 (programa con ventana)](#10-consolidado-v1-programa-con-ventana)
+11. [Parámetros](#11-parámetros)
+12. [Observaciones y pendientes](#12-observaciones-y-pendientes)
+13. [Ejecutar y mantener](#13-ejecutar-y-mantener)
 
 ---
 
-## 1. Visión general y flujo
+## 1. En un minuto
 
-El proceso calcula, para cada ítem de cada empresa del grupo, el **buffer DDMRP** (zonas roja,
-amarilla y verde), la **posición de flujo neto (NFP)** y el **pedido sugerido**.
+Para cada ítem de llantas de cada empresa del grupo se calcula cuánto se vende por día (ADU), cuánto tarda
+en llegar la mercadería (DLT), el buffer (zonas roja, amarilla y verde), el flujo neto y cuánto hay que pedir.
 
-### Orígenes de datos
+- Todo se corre con **`DDMRP.bat`** (menú de 4 opciones, ver [sección 3](#3-reportes-y-el-bat)).
+- **Normal:** `master_llantas.py` → `core.ddmrp_llantas` (una fila por ítem).
+- **Mensualizado:** `llantas_mes.py` → `core.ddmrp_llantas_mes`.
+- **Consolidado:** `ddmrp_consolidado.py` → `core.ddmrp_llantas_consolidado` (une los dos anteriores).
+- **Consolidado v1:** programa con ventana, solo lectura (`consolidado_v1\`).
 
-| Origen | Motor | Qué se lee |
-|---|---|---|
-| SAP Business One | SAP HANA | Stock actual por bodega (`OITM`, `OITW`) |
-| DWH | SQL Server | Historial diario de existencias (`dbo.hec_existencias`, `dbo.dim_bodegas`) |
-| dwh | PostgreSQL | Ventas, importaciones, pedidos, tránsitos, facturas reserva, maestro de ítems, parámetros |
+Pasos: **1. Leer datos** (SAP HANA y DWH) → **2. Resumir** (7 tablas resumen) → **3. Calcular** (fórmulas
+en orden) → **4. Reportar** (un Excel por tabla).
 
-### Orden de ejecución (`master.py`)
-
-```
-master.py
- │
- ├─ 1. ddmrp_bodega.ejecutar()        HANA        → core.ddmrp_bodegas        (stock actual)
- ├─ 2. ddmrp_inventario.ejecutar()    SQL Server  → core.ddmrp_inventario     (días con stock)
- ├─ 3. ddmrp_ventas_picos.ejecutar()  PostgreSQL  → core.ddmrp_ventas_picos   (ADU, VF, picos)
- ├─ 4. ddmrp_proveedores.ejecutar()   PostgreSQL  → core.ddmrp_proveedores    (lead times, DLT)
- │
- │   Si CUALQUIERA de los 4 falla → se registra el error, NO se actualiza core.ddmrp y sale con código 1.
- │
- └─ 5. cargar_ddmrp()                 PostgreSQL  → core.ddmrp                (tabla final)
-        ├─ INSERT con SQL_DDMRP (datos base + DLT + VF)
-        ├─ UPDATE ADU          (desde ddmrp_ventas_picos)
-        ├─ UPDATE LTF          (tramo del DLT)
-        ├─ UPDATE ZONA ROJA BASE → ZONA ROJA SEGURIDAD → TOR
-        ├─ UPDATE ZONA AMARILLA → TOY
-        ├─ UPDATE ZONA VERDE → TOG
-        └─ UPDATE NFP → PEDIDO SUGERIDO
-```
-
-### Patrón de carga común a todos los scripts
-
-Todos los scripts siguen el mismo patrón:
-
-1. `CREATE TABLE IF NOT EXISTS` (crea la tabla solo si no existe).
-2. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (en los que lo tienen: agrega columnas nuevas sin borrar la tabla).
-3. `TRUNCATE` (borra todos los registros).
-4. `INSERT` masivo (`execute_values`, páginas de 5.000 filas).
-
-Todo dentro de **una sola transacción** (`with conn:`): si algo falla, se hace rollback y la tabla
-queda con los datos de la corrida anterior (nunca vacía).
-
-Cada script puede ejecutarse solo (`python ddmrp_xxx.py`) o desde el master.
-
----
-
-## 2. Parámetros (`core.ddmrp_parametros`)
-
-Tabla de configuración. Los scripts leen `ddmrp_valor_num` **solo de los registros con
-`ddmrp_estado = 1`**; si falta un parámetro activo, el script lanza `ValueError` y se detiene.
-(Excepción: la vista `vw_ddmrp_ventas` no filtra por estado y usa 365/90 por defecto si no encuentra el valor;
-`master.py` tampoco filtra por estado al leer los ids 3, 4, 5 y 6).
-
-| id | Nombre | Valor | Usado en | Para qué |
-|---:|---|---:|---|---|
-| 1 | Ventas 1 anio | 365 | `ddmrp_inventario.py`, `vw_ddmrp_ventas` | Días de la ventana anual (ventas y días con stock) |
-| 2 | Venta 90 dias | 90 | `ddmrp_inventario.py`, `vw_ddmrp_ventas` | Días de la ventana corta |
-| 3 | Ciclo Pedido | 30 | `master.py` (ZONA VERDE) | Días del ciclo de pedido (Order Cycle) |
-| 4 | LTF bajo | 0.2 | `master.py` (LTF), `ddmrp_proveedores.py` | Factor de lead time |
-| 5 | LTF medio | 0.4 | `master.py` (LTF), `ddmrp_proveedores.py` | Factor de lead time |
-| 6 | LTF alto | 0.6 | `master.py` (LTF), `ddmrp_proveedores.py` | Factor de lead time |
-| 7 | VF bajo | 0.2 | `ddmrp_ventas_picos.py` | Factor de variabilidad, CV ≤ 0.5 |
-| 8 | VF medio | 0.4 | `ddmrp_ventas_picos.py` | Factor de variabilidad, 0.5 < CV ≤ 1 y SKU no medible |
-| 9 | VF alto | 0.6 | `ddmrp_ventas_picos.py` | Factor de variabilidad, CV > 1 |
-| 10 | Dias Confirmacion Pedido | 3 | `ddmrp_proveedores.py` (DLT) | Días fijos sumados al DLT |
-| 11 | Dias Desaduanizacion y Recepcion Bodega | 3 | `ddmrp_proveedores.py` (DLT) | Días fijos sumados al DLT |
-| 12 | Dias Cordinacion Booking | 3 | `ddmrp_proveedores.py` (DLT) | Días fijos sumados al DLT |
-| 13 | Umbral | 3.5 | `ddmrp_ventas_picos.py`, `ddmrp_proveedores.py` | Umbral de \|Z modificado\| para marcar un pico |
-| 14 | Z modificado | 0.6745 | `ddmrp_ventas_picos.py`, `ddmrp_proveedores.py` | Constante del Z modificado (Iglewicz–Hoaglin) |
-| 15 | Dias toma datos | 365 | `ddmrp_proveedores.py` | Filtro de antigüedad de facturas reserva |
-
-Constantes que están **en el código** (no en la tabla de parámetros):
-
-| Script | Constante | Valor | Uso |
-|---|---|---|---|
-| `ddmrp_ventas_picos.py` | `FECHA_DESDE` | 2025-05-01 | Inicio fijo de la extracción de ventas |
-| `ddmrp_ventas_picos.py` | `LIMITE_VF_BAJO` / `LIMITE_VF_MEDIO` | 0.5 / 1 | Cortes de CV para elegir el factor VF |
-| `ddmrp_ventas_picos.py` | `MESES_VENTANA` | 12 | Meses completos para ADU y CV |
-| `ddmrp_ventas_picos.py` | `MIN_MESES_LIMPIOS` | 3 | Mínimo de meses para medir el CV |
-| `ddmrp_proveedores.py` | `LIMITE_LTF_BAJO` / `LIMITE_LTF_MEDIO` | 60 / 100 días | Tramos de DLT (columna `ltf` de proveedores) |
-| `master.py` | tramos en `SQL_LTF` | 60 / 100 días | Tramos de DLT (columna `LTF` de ddmrp) |
-| `vw_ddmrp_ventas` | 0.4 | 40 % | Umbral de `supera_umbral` |
-| `ddmrp_ventas_picos.py`, `ddmrp_proveedores.py` | `DECIMALES_Z` | 2 | Redondeo del Z modificado |
-
----
-
-## 3. `conection/config.py`
-
-Solo define las conexiones; no calcula nada.
-
-| Objeto | Tipo | Destino |
-|---|---|---|
-| `SQLSERVER` | dict | SQL Server `192.168.0.15:1433`, base `DWH` (driver ODBC "SQL Server") |
-| `POSTGRES` | dict | PostgreSQL `192.168.0.89:5432`, base `dwh` |
-| `HANA` | dict | SAP HANA `192.168.0.105:30015` |
-| `sqlserver_conn_str()` | función | Arma la cadena ODBC `DRIVER=...;SERVER=...;DATABASE=...;UID=...;PWD=...` para `pyodbc` |
-
-Los scripts la importan agregando `DDMRP/conection` al `sys.path`.
-
----
-
-## 4. `ddmrp_bodega.py` → `core.ddmrp_bodegas`
-
-**Objetivo:** stock físico actual (hoy) de cada ítem, sumando las bodegas de venta de cada empresa.
-
-### 4.1 Configuración de empresas
-
-| Empresa (`codigo`) | Abreviatura | Esquema SAP HANA | Bodegas (`OITW.WhsCode`) |
-|---|---|---|---|
-| STOX | ST | `SBO_STOX_PROD` | 02, 03, 07, 08, 09, 10 |
-| AUTOLLANTA | AU | `SBO_AUTOLLANTA_PROD` | 01, 02, 03, 07, 08, 09, 10 |
-| MAXXIMUNDO | MA | `SBO_MAXXIMUNDO_PROD` | 02, 03, 07, 08, 09, 10 |
-| IKONIX | IK | `SBO_IKONIX_PROD` | 01, 02, 03, 07, 08, 09, 10 |
-| AUTOMAX | ATX | `SBO_AUTOMAX_PROD1` (única con sufijo `PROD1`) | 01, 02, 03, 04, 05 |
-
-### 4.2 Consulta (una por empresa)
-
-```sql
-SELECT T0."ItemCode" AS codigo, SUM(T1."OnHand") AS sum
-FROM "<esquema>"."OITM" T0
-INNER JOIN "<esquema>"."OITW" T1 ON T0."ItemCode" = T1."ItemCode"
-WHERE T1."WhsCode" IN (<bodegas de la empresa>)
-GROUP BY T0."ItemCode"
-```
-
-### 4.3 Campos de `core.ddmrp_bodegas`
-
-| Campo | Tipo | Cálculo |
-|---|---|---|
-| `codigo` | varchar | `<abreviatura>` + `"_"` + `OITM.ItemCode`. Ej.: ItemCode `2000050` de MAXXIMUNDO → `MA_2000050`. Así coincide con `dim_item.dit_codigo`. |
-| `empresa` | varchar | Código de la empresa (`STOX`, `AUTOLLANTA`, …). |
-| `sum` | bigint | `SUM(OITW.OnHand)` del ítem en las bodegas listadas. `OnHand` es el stock **físico** (no descuenta lo comprometido `IsCommited` ni suma lo pedido `OnOrder`). Al guardarse como `bigint`, los decimales se redondean. |
-
-- Aparecen todos los ítems que tengan registro en `OITW` para esas bodegas, **incluso con stock 0**.
-- Es una foto del momento de la ejecución (no histórico).
-- Si una empresa no devuelve filas, se registra un *warning* pero el proceso continúa.
-
-**Uso en master:** `EN STOCK = ddmrp_bodegas.sum` (join por `empresa` + `codigo`).
-
----
-
-## 5. `ddmrp_inventario.py` → `core.ddmrp_inventario`
-
-**Objetivo:** contar **cuántos días tuvo stock** cada ítem en la ventana de 1 año y en la de 90 días.
-Esto se usa después para calcular una demanda "corregida por quiebres de stock" (si un ítem estuvo
-sin stock, no pudo venderse; se divide la venta solo entre los días en que sí hubo stock).
-
-### 5.1 Parámetros y fechas
-
-| Variable | Valor | Descripción |
-|---|---|---|
-| `dias_1anio` | param 1 = 365 | |
-| `dias_90d` | param 2 = 90 | |
-| `FECHA_CORTE` | `None` | Si se pone una fecha, las ventanas se calculan hacia atrás desde esa fecha. Con `None` = hoy. |
-| `HOY` | `FECHA_CORTE` o `date.today()` | |
-| `HASTA` | `HOY + 1 día` | Límite superior **exclusivo** (incluye todo el día de corte). |
-| `desde_1a` | `HOY − 365 días` | Inicio **inclusivo** ventana anual. |
-| `desde_90d` | `HOY − 90 días` | Inicio **inclusivo** ventana 90 días. |
-| `FILTRO_EMPRESA`, `FILTRO_ITEM` | `None` | Filtros opcionales para pruebas. |
-
-Bodegas consideradas (`BODEGAS_POR_EMPRESA`, códigos `dim_bodegas.dib_codigobodega`): **las mismas
-que en `ddmrp_bodega.py`** (ver 4.1).
-
-### 5.2 Consulta (SQL Server)
-
-```sql
-SELECT hex_empresa, hex_identificadoritem,
-       COUNT(DISTINCT CAST(hex_fechasubida AS DATE))                    AS dias_stock_1anio,
-       COUNT(DISTINCT CASE WHEN hex_fechasubida >= :desde_90d
-                           THEN CAST(hex_fechasubida AS DATE) END)      AS dias_stock_90d
-FROM DWH.dbo.hec_existencias
-WHERE hex_fechasubida >= :desde_1a
-  AND hex_fechasubida <  :hasta
-  AND hex_stock > 0
-  AND EXISTS (SELECT 1 FROM DWH.dbo.dim_bodegas b
-              WHERE b.dib_nombreempresa = hex_empresa
-                AND b.dib_nombrebodega  = hex_nombrealmacen
-                AND ( (b.dib_nombreempresa='MAXXIMUNDO' AND b.dib_codigobodega IN (...)) OR ... ))
-GROUP BY hex_empresa, hex_identificadoritem
-```
-
-`hec_existencias` es una foto diaria del stock por ítem y almacén (`hex_fechasubida` = fecha de la foto).
-El `EXISTS` limita a las bodegas de venta: cruza por **nombre** del almacén con `dim_bodegas` y valida el
-**código** de bodega de la empresa.
-
-### 5.3 Campos de `core.ddmrp_inventario`
-
-| Campo | Tipo | Cálculo |
-|---|---|---|
-| `ddmpr_empresa` | varchar | `hex_empresa`. (Nota: el nombre tiene la errata `ddmpr`; el master la usa igual.) |
-| `ddmrp_item` | varchar | `hex_identificadoritem`. En el master se cruza con `dim_item.dit_identificador` (no con `dit_codigo`). |
-| `ddmrp_stock_inv_1anio` | double | Número de **días distintos** entre `desde_1a` y `HOY` (ambos incluidos) en que el ítem tuvo `hex_stock > 0` en **al menos una** de las bodegas de venta. |
-| `ddmrp_stock_inv_90D` | double | Igual, pero solo días con `hex_fechasubida >= desde_90d`. |
-
-Detalles importantes:
-
-- Basta con que **una** bodega tenga stock > 0 ese día para contar el día (no se suma el stock de las bodegas).
-- Los ítems que no tuvieron stock ningún día de la ventana **no aparecen** en la tabla → en el master sus días quedan `NULL` y las demandas mensuales salen 0.
-- Como el inicio es inclusivo (`HOY − 365`) y el fin también (`< HOY + 1`), la ventana abarca hasta **366** fechas calendario (y hasta **91** en la de 90 días). El valor real depende de los días en que haya foto cargada en `hec_existencias`.
-
-**Uso en master:** `DIAS INV 1 AÑO`, `DIAS INV 90D` y como divisor de `DEMANDA MES 1 AÑO` / `DEMANDA MES 90D`.
-
----
-
-## 6. `ddmrp_ventas_picos.py` → `core.ddmrp_ventas_picos`
-
-**Objetivo:** a partir de la venta mensual de cada ítem, detectar meses atípicos (picos) con el
-**Z modificado** y calcular el **ADU** (demanda diaria promedio), el **CV** (coeficiente de variación)
-y el **VF** (factor de variabilidad).
-
-La tabla tiene **una fila por empresa + ítem + mes**; ADU, CV y VF se repiten en todas las filas del ítem.
-
-### 6.1 Extracción
-
-```sql
-SELECT hev_empresa, hev_codigoitem,
-       date_trunc('month', hev_fechadocumento)::date AS mes,
-       ROUND(SUM(hev_cantidad))::integer             AS cantidad,
-       current_date                                  AS fecha_subida
-FROM core.hec_ventas
-WHERE hev_fechadocumento::date >= '2025-05-01'      -- FECHA_DESDE (fija en el código)
-  AND hev_tipodocumento <> 'PPTO'                    -- excluye presupuesto
-GROUP BY hev_empresa, hev_codigoitem, mes
-```
-
-- `cantidad` = suma de unidades del mes, redondeada a entero. Puede ser **negativa** (meses con más devoluciones/notas de crédito que ventas).
-- Solo existen filas para los meses **con movimiento**; los meses sin venta no generan fila.
-- Incluye el **mes en curso** (incompleto).
-- **No** filtra por canal/vendedor ni excluye clientes (a diferencia de `vw_ddmrp_ventas`, ver §8.1).
-
-### 6.2 Detección de picos (por empresa + ítem)
-
-Para cada ítem se toman **todas** sus filas mensuales extraídas (desde 2025-05, incluido el mes en curso):
-
-| Paso | Fórmula | Equivalente Excel |
-|---|---|---|
-| Mediana | `MEDX = mediana(cantidad de todos los meses del ítem)` | `=MEDIANA(...)` |
-| MAD | `MADX = mediana( \|cantidad − MEDX\| )` | |
-| `desv_mediana` | `\|cantidad − MEDX\|` | `=ABS(C36-MEDX)` |
-| `z_modificado` | `0.6745 × (cantidad − MEDX) / MADX` ; si `MADX = 0` → `0` | `=0,6745*(C36-MEDX)/MADX` |
-| `es_pico` | `"SI"` si `\|z\| > 3.5`, si no `"NO"` (se compara con el Z **sin redondear**) | `=SI(ABS(E36)>ZTHR;"SI";"NO")` |
-| `demanda_adu` | `cantidad` si `es_pico = "NO"`, si no `0` | `=SI(F36="NO";C36;"0")` |
-
-- La mediana es la de `statistics.median` de Python (con cantidad par de datos, promedio de los dos centrales).
-- `z_modificado` se guarda redondeado a 2 decimales.
-- Si `MADX = 0` (más de la mitad de los meses con la misma cantidad) el Z es 0 y **ningún mes se marca como pico**.
-- `demanda_adu` es **informativa**: el ADU **no** se calcula con esta columna (ver 6.3).
-
-### 6.3 ADU, CV y VF (por empresa + ítem)
-
-**Serie mensual del ítem:**
-
-1. `mes_actual` = primer día del mes de hoy (el mes en curso **no entra**, está incompleto).
-2. `ini_ventana` = `mes_actual − 12 meses`.
-3. La serie va desde `max(primer mes con venta del ítem, ini_ventana)` hasta el mes anterior a `mes_actual`
-   → como máximo **12 meses completos**; si el ítem es nuevo, desde su primer mes con venta.
-4. Los meses **sin venta** cuentan como **0**.
-5. Se **quitan de la serie** (no se ponen en 0, se eliminan) los **picos altos**:
-   `es_pico = "SI"` **y** `z_modificado > 0` (mes por encima de la mediana).
-   Los picos bajos (z < 0) se quedan en la serie con su valor.
-
-**Cálculos:**
-
-| Campo | Fórmula | Redondeo |
-|---|---|---|
-| `ADU` | `max( promedio(serie) / 30 ; 0 )` → unidades por día. Serie vacía → 0. | 2 dec. |
-| `desviacion_estandar` | **Es el CV**, no la desviación: `CV = desv.estándar muestral(serie) / promedio(serie)` (equivale a desviación / ADU, la unidad se cancela). | 2 dec. |
-| `VF` | `CV × factor del tramo` (ver tabla) | 2 dec. |
-
-| Condición | Factor | VF resultante |
-|---|---|---|
-| CV ≤ 0.5 | VF bajo (param 7) = 0.2 | CV × 0.2 |
-| 0.5 < CV ≤ 1 | VF medio (param 8) = 0.4 | CV × 0.4 |
-| CV > 1 | VF alto (param 9) = 0.6 | CV × 0.6 |
-| **No medible**: serie con menos de 3 meses **o** promedio ≤ 0 | — | CV = 0, **VF = 0.40** (el factor medio tal cual, sin multiplicar) |
-
-- `stdev` es la desviación estándar **muestral** (divide entre n − 1), como `DESVEST.M` de Excel.
-- El `/30` es fijo (mes estándar de 30 días), no usa los días reales del mes.
-
-### 6.4 Campos de `core.ddmrp_ventas_picos`
-
-| Campo | Tipo | Nivel | Descripción |
-|---|---|---|---|
-| `hev_empresa` | varchar | fila | Empresa. |
-| `hev_codigoitem` | varchar | fila | Código de ítem (formato `MA_2000050`). |
-| `mes` | date | fila | Primer día del mes. |
-| `cantidad` | integer | fila | Unidades vendidas netas del mes (§6.1). |
-| `desv_mediana` | numeric | fila | `\|cantidad − mediana\|`. |
-| `z_modificado` | numeric | fila | Z modificado (2 dec.). |
-| `es_pico` | varchar(2) | fila | `SI`/`NO`. |
-| `demanda_adu` | integer | fila | Cantidad sin picos (picos altos y bajos en 0). Informativa. |
-| `fecha_subida` | date | fila | Fecha de ejecución. |
-| `desviacion_estandar` | numeric | ítem | **CV** de la serie limpia (§6.3). |
-| `VF` | numeric | ítem | Factor de variabilidad (§6.3). |
-| `ADU` | numeric | ítem | Demanda diaria promedio (§6.3). |
-
-**Uso en master:** `ADU` y `VF` (con `SELECT DISTINCT` por empresa + ítem).
-
----
-
-## 7. `ddmrp_proveedores.py` → `core.ddmrp_proveedores`
-
-**Objetivo:** calcular el lead time de cada **pedido de importación (PI)** por proveedor, limpiar picos
-con el Z modificado y armar el **DLT** (Decoupled Lead Time) por pedido.
-La tabla tiene **una fila por empresa + proveedor + PI + forwarder**.
-
-### 7.1 Extracción
-
-```sql
-SELECT hfr.hfr_empresa          AS empresa,
-       imp.heim_codigoproveedor AS cod_proveedor,
-       imp.heim_proveedor       AS nombre_proveedor,
-       ped.hpe_numeropi,
-       imp.heim_agente_forwarder,
-       ROUND(AVG(imp.heim_eta_real::date - imp.heim_etd_real::date), 0)           AS leadtime_promedio_etd_eta,
-       ROUND(AVG(ped.hpe_fechanecesaria::date - hfr.hfr_fechadocumento::date), 0) AS leadtime_promedio,
-       COUNT(*) AS total_registros
-FROM core.hec_facturas_reserva hfr
-JOIN core.hec_importaciones imp ON hfr.hfr_numeropi = imp.heim_num_pi
-LEFT JOIN core.hec_pedidos ped  ON hfr.hfr_numeropi = ped.hpe_numeropi
-WHERE hfr.hfr_fechadocumento < CURRENT_DATE - 365      -- param 15
-GROUP BY empresa, cod_proveedor, nombre_proveedor, ped.hpe_numeropi, heim_agente_forwarder
-```
-
-| Campo extraído | Significado | Cálculo |
-|---|---|---|
-| `leadtime_promedio_etd_eta` | Lead time **puerto de origen → Guayaquil** (tránsito marítimo) | Promedio de `ETA real − ETD real` en días, redondeado a entero |
-| `leadtime_promedio` | Lead time de **producción** del proveedor | Promedio de `fecha necesaria del pedido − fecha documento de la factura reserva` en días, redondeado a entero |
-| `total_registros` | Número de filas unidas | `COUNT(*)` del join (líneas de factura × registros de importación × registros de pedido) |
-
-- Filtro de fecha: solo facturas reserva con fecha **anterior** a hoy − 365 días (param 15).
-- Si el PI **no existe en `hec_pedidos`** (LEFT JOIN sin match), `hpe_numeropi` y `leadtime_promedio` salen `NULL`. Todas esas facturas del mismo proveedor/forwarder se agrupan en **una sola fila** con PI `NULL`.
-- Los promedios `ROUND(...,0)` se convierten a `int` en Python.
-
-### 7.2 Picos de lead time (Z modificado)
-
-Se aplica **dos veces**, de forma independiente: una sobre `leadtime_promedio_etd_eta` (columnas con sufijo `_etd_eta`) y otra sobre `leadtime_promedio` (columnas sin sufijo). Agrupación: **empresa + cod_proveedor** (todas las filas/PI del proveedor).
-
-| Campo | Fórmula |
+| Dato | Valor |
 |---|---|
-| Mediana | `MEDX = mediana(lead times no nulos del proveedor)` |
-| MAD | `MADX = mediana(\|leadtime − MEDX\|)` |
-| `desv_mediana[_etd_eta]` | `\|leadtime − MEDX\|` |
-| `z_modificado[_etd_eta]` | `0.6745 × (leadtime − MEDX) / MADX` (0 si MADX = 0); guardado con 2 dec. |
-| `es_pico[_etd_eta]` | `"SI"` si `\|z\| > 3.5` (Z sin redondear) |
-| `leadtime_adu[_etd_eta]` | `leadtime` si `es_pico = "NO"`; **0** si es pico (altos **y** bajos) |
-
-Filas con lead time `NULL`: las 4 columnas calculadas quedan `NULL`.
-
-### 7.3 DLT por pedido
-
-```
-dlt = Días confirmación pedido (param 10 = 3)
-    + leadtime_adu                (producción, sin picos; NULL → 0)
-    + Días coordinación booking   (param 12 = 3)
-    + leadtime_adu_etd_eta        (tránsito puerto → GYE, sin picos; NULL → 0)
-    + Días desaduanización y recepción en bodega (param 11 = 3)
-
-    = 9 + leadtime_adu + leadtime_adu_etd_eta        (con los parámetros actuales)
-```
-
-Un lead time marcado como pico vale 0, así que ese pedido queda con un DLT menor (no se excluye la fila).
-
-### 7.4 Columna `ltf` (de esta tabla)
-
-```
-DLT ≤ 60          → ltf = DLT × 0.2  (param 4, "LTF bajo")
-60 < DLT ≤ 100    → ltf = DLT × 0.4  (param 5, "LTF medio")
-DLT > 100         → ltf = DLT × 0.6  (param 6, "LTF alto")
-redondeado a 2 decimales
-```
-
-Es un valor en **días** (DLT × factor). **El master no usa esta columna**: calcula su propio `LTF` (ver §9.3), con los tramos **al revés** (ver §11).
-
-### 7.5 Campos de `core.ddmrp_proveedores`
-
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `empresa` | varchar | `hfr_empresa` |
-| `cod_proveedor` | varchar | `heim_codigoproveedor` |
-| `nombre_proveedor` | varchar | `heim_proveedor` |
-| `hpe_numeropi` | varchar | Número de PI (NULL si no está en `hec_pedidos`) |
-| `heim_agente_forwarder` | varchar | Forwarder |
-| `leadtime_promedio_etd_eta` | integer | Tránsito ETA − ETD (§7.1) |
-| `desv_mediana_etd_eta` | numeric | §7.2 |
-| `z_modificado_etd_eta` | numeric | §7.2 |
-| `es_pico_etd_eta` | varchar(2) | §7.2 |
-| `leadtime_adu_etd_eta` | integer | §7.2 |
-| `leadtime_promedio` | integer | Producción: fecha necesaria − fecha documento (§7.1) |
-| `desv_mediana` | numeric | §7.2 |
-| `z_modificado` | numeric | §7.2 |
-| `es_pico` | varchar(2) | §7.2 |
-| `leadtime_adu` | integer | §7.2 |
-| `total_registros` | integer | §7.1 |
-| `dlt` | numeric | §7.3 |
-| `ltf` | numeric | §7.4 |
-
-**Uso en master:** solo la columna `dlt` (§9.2, campo `DLT`).
+| Ítems calculados | 5,723 llantas activas de compra (13/11/2026) |
+| Empresas | 5: AUTOLLANTA · MAXXIMUNDO · STOX · IKONIX · AUTOMAX |
+| Ventana de análisis | 365 días, y 90 días para la demanda reciente |
+| Homologaciones | 3: ROADWING pesado · CST moto · marcas de IKONIX |
 
 ---
 
-## 8. Vistas de PostgreSQL usadas por el master
+## 2. Glosario
 
-Estas vistas **no están en los scripts**; viven en la base `dwh`. Definición obtenida con `pg_get_viewdef`.
-
-### 8.1 `core.vw_ddmrp_ventas` (ventas 365 / 90 días / mes)
-
-Una fila por `hev_empresa` + `hev_codigoitem`.
-
-**Filtros:**
-- `hev_tipodocumento <> 'PPTO'`.
-- Solo vendedores (`hev_vendedor_asignado` → `dim_vendedores.dve_codigo`) de categoría **`EQUIPO DE MAYOREO`** o **`EQUIPO B2B`**. Ventas con vendedor que no esté en `dim_vendedores` quedan fuera (JOIN interno).
-- Excluye 4 clientes cuyo `hev_cuentasocio` termina en: `0190085929001`, `0195092982001`, `0190350533001`, `0195116598001`.
-- Ítem debe existir en `dim_item` (JOIN por `dit_codigo`).
-- `hev_fechadocumento >= CURRENT_DATE − 365 días` (param 1; si no existe, 365).
-
-| Columna | Cálculo |
+| Término | Significado |
 |---|---|
-| `365D` | `SUM(hev_cantidad)` de la ventana; si la suma ≤ 0 → 0 |
-| `max_cantidad_anio` | `MAX(hev_cantidad)` — la **línea de documento** con más unidades del año (no el mes con más venta); 0 si la suma anual ≤ 0 |
-| `supera_umbral` | `'SI'` si `MAX(hev_cantidad) > 0.4 × SUM(hev_cantidad)`, si no `'NO'` (una sola venta representa más del 40 % del año) |
-| `90D` | `SUM(hev_cantidad)` con `hev_fechadocumento >= CURRENT_DATE − 90` (param 2); 0 si no hay |
-| `MES` | `SUM(hev_cantidad)` desde el día 1 del mes actual; 0 si no hay |
-
-### 8.2 `core.vw_ddmrp_trans_ped` (suministro abierto)
-
-Una fila por ítem de `dim_item` (`dit_codigo`, `dit_empresa`). Los tránsitos y facturas se agrupan **solo por código de ítem** (el código ya incluye el prefijo de empresa, p. ej. `MA_`).
-
-| Columna | Origen | Cálculo |
-|---|---|---|
-| `30D` | `core.hec_transitos` | `SUM(het_cantidad)` con `het_estado = 'ABIERTO'` y `het_fechaentrega` entre **hoy y hoy + 30** (inclusive) |
-| `60D` | `core.hec_transitos` | `SUM(het_cantidad)` con `het_estado = 'ABIERTO'` y `het_fechaentrega` **> hoy + 30 y ≤ hoy + 60** |
-| `pedido` | `core.hec_facturas_reserva` | `SUM(hfr_backorder)` con `hfr_estado = 'ABIERTO'` y `hfr_pedidocompleto = 'PEDIDO'` |
-| `backorder` | `core.hec_facturas_reserva` | `SUM(hfr_backorder)` con `hfr_estado = 'ABIERTO'` y `hfr_pedidocompleto = 'BACKORDER'` |
-
-Todo con `COALESCE(...,0)`.
-Tránsitos abiertos con fecha de entrega **anterior a hoy** (vencidos) o **posterior a hoy + 60** no se cuentan en ninguna columna.
-
-### 8.3 `core.vw_ddmrp_item_proveedor` (relación ítem ↔ proveedor)
-
-```sql
-SELECT DISTINCT hfr.hfr_empresa AS empresa, hfr.hfr_codigoitem AS codigoitem, imp.heim_codigoproveedor
-FROM core.hec_facturas_reserva hfr
-JOIN core.hec_importaciones imp ON hfr.hfr_numeropi = imp.heim_num_pi
-```
-
-Todos los proveedores a los que alguna vez se importó el ítem (sin filtro de fecha). Se usa para
-llevar el DLT del proveedor al ítem.
+| **ADU** (Average Daily Usage) | Venta promedio por día = ventas ÷ días con inventario. Las fórmulas usan el ADU **con picos**; ADU SIN PICOS es solo referencia. |
+| **DLT** (Decoupled Lead Time) | Días que tarda en llegar un pedido del proveedor. |
+| **LTF** (Lead Time Factor) | Factor según el DLT: plazos cortos más seguridad (0.6), largos menos (0.2). |
+| **CV · VF** | Qué tan irregular es la venta. Más irregular = más seguridad (VF 0.2 / 0.4 / 0.6). |
+| **TOR** (ZONA ROJA) | Stock de seguridad. |
+| **TOY** (LIMITE ZONA AMARILLA) | Seguridad + la demanda mientras llega el pedido. |
+| **TOG** (TAMAÑO BUFFER) | Nivel máximo: hasta aquí se llena cuando se pide. |
+| **NFP** (FLUJO NETO) | Posición del ítem para compararla con el buffer. |
+| **Pico** | Día de venta muy por encima de lo normal (Z modificado > 4). No se quita del ADU que usan las fórmulas. |
+| **Días con inventario** | Días con **4 o más unidades** en al menos una bodega de venta (`inv_stock > 3`). |
+| **Importador / comercializador** | Empresa que compra al proveedor / empresa que vende. |
 
 ---
 
-## 9. `master.py` → `core.ddmrp` (tabla final, campo por campo)
+## 3. Reportes y el .bat
 
-### 9.1 Construcción de la tabla
+`DDMRP.bat` muestra un menú; también se le puede pasar el número (`DDMRP.bat 4`) para el Programador de
+tareas. Cada opción corre primero las 7 tablas resumen y luego su cálculo y su Excel. Si un paso falla, se
+detiene y muestra dónde (archivo, línea y error).
 
-1. `CREATE TABLE IF NOT EXISTS core.ddmrp AS <SQL_DDMRP> WITH NO DATA` (estructura = columnas del SELECT).
-2. Crea una tabla temporal vacía con el mismo SELECT, lee sus columnas/tipos de `pg_attribute` y hace `ADD COLUMN IF NOT EXISTS` de cada una (si se agregan columnas al SELECT, aparecen solas en la tabla).
-3. Agrega (si no existen) las columnas calculadas por UPDATE, todas `numeric DEFAULT 0`: `ADU`, `ZONA ROJA BASE`, `ZONA ROJA SEGURIDAD`, `TOR`, `ZONA AMARILLA`, `TOY`, `ZONA VERDE`, `TOG`, `NFP`, `PEDIDO SUGERIDO`.
-4. `TRUNCATE` + `INSERT ... SQL_DDMRP`.
-5. UPDATEs en este orden: ADU → LTF → ZONA ROJA BASE → ZONA ROJA SEGURIDAD → TOR → ZONA AMARILLA → TOY → ZONA VERDE → TOG → NFP → PEDIDO SUGERIDO.
+| Opción | Reporte | Scripts | Tabla | Excel (`REPORTES DDMRP\DD-MM-AAAA\`) |
+|---|---|---|---|---|
+| 1 | DDMRP LLANTAS (normal) | `master_llantas.py` + `export_excel_llantas.py` | `core.ddmrp_llantas` | Reporte de Pedidos (NEUMATICOS) (TODAS) (DD-MM-AAAA).xlsx |
+| 2 | DDMRP LLANTAS MENSUALIZADO | `llantas_mes.py` + `export_excel_llantas_mes.py` | `core.ddmrp_llantas_mes` | Reporte de Pedidos Mensualizado (…).xlsx |
+| 3 | DDMRP LLANTAS CONSOLIDADO | `ddmrp_consolidado.py` + `export_excel_consolidado.py` | `core.ddmrp_llantas_consolidado` | Reporte de Pedidos Consolidado (…).xlsx |
+| 4 | TODOS | 1, 2 y 3 seguidos | las 3 | los 3 |
 
-Todo es **una transacción**.
+- **Normal:** el cálculo de la [sección 8](#8-cálculo-en-el-master-master_llantaspy). Solo entran ítems
+  `ACTIVO = 'SI'`, `ARTICULO_COMPRA = 'Y'` y grupo `LLANTAS` o `LLANTAS MOTO` (filtro en la consulta base).
+- **Mensualizado:** fórmulas del Excel *DDMRP_GRUPOVI_LLANTAS_V16*. Pide para tener en piso a lo más
+  **3 meses** (CLASIF. PARETO A o B) o **2 meses** (el resto), más lo que cubre el DLT (meses de 30 días).
+  Mismas tablas resumen y mismo filtro de ítems. Las homologaciones están en la lista `HOMOLOGACIONES`.
+- **Consolidado:** une el normal y el mensualizado con las columnas y el orden de *REORDENADO_UNIFICADO.xlsx*.
+  **No tiene fórmulas propias:** calcula los dos modelos en tablas temporales con los mismos datos y toma cada
+  columna del que corresponde (lista `COLUMNAS`). No toca `core.ddmrp_llantas` ni `core.ddmrp_llantas_mes`.
 
-**Universo de filas:** una fila por registro de `core.dim_item` (todos los ítems del maestro, activos o no, con o sin venta). Los demás orígenes entran con `LEFT JOIN`.
+**Carpetas que se crean solas** (no se copian ni se suben a GitHub):
 
-| Alias | Origen | Join |
-|---|---|---|
-| `b` | `core.dim_item` | base |
-| `a` | `core.vw_ddmrp_ventas` | `hev_empresa = dit_empresa AND hev_codigoitem = dit_codigo` |
-| `c` | `core.ddmrp_inventario` | `ddmpr_empresa = dit_empresa AND ddmrp_item = dit_identificador` |
-| `d` | `core.ddmrp_bodegas` | `empresa = dit_empresa AND codigo = dit_codigo` |
-| `e` | `core.vw_ddmrp_trans_ped` | `dit_empresa` + `dit_codigo` |
-| `f` | subconsulta DLT (§9.2 DLT) | `empresa` + `codigoitem` |
-| `g` | `DISTINCT hev_empresa, hev_codigoitem, "VF"` de `ddmrp_ventas_picos` | `hev_empresa` + `hev_codigoitem` |
+- `logs\`: la crea el .bat. `log_actualizacion_ddmrp.txt` (historial) y `_ultimo_paso.txt` (último script).
+- `REPORTES DDMRP\DD-MM-AAAA\`: la crea cada exportador. Hay **una carpeta por día** de ejecución.
 
-### 9.2 Campos descriptivos
+Las tablas resumen se **borran y se vuelven a cargar** en cada corrida (`TRUNCATE` + `INSERT`), salvo
+`ddmrp_proveedores_dlt`, que solo se actualiza.
 
-| Campo | Origen | Cálculo |
-|---|---|---|
-| `EMPRESA` | `dim_item.dit_empresa` | directo |
-| `CODIGO_ITEM` | `dim_item.dit_codigo` | directo (ej. `MA_2000050`) |
-| `DESCRIPCION` | `dim_item.dit_nombre` | directo |
-| `GRUPO` | `dim_item.dit_grupo` | directo |
-| `RIN` | `dim_item.dit_rin` | directo |
-| `SERIE` | `dim_item.dit_serie` | directo |
-| `ANCHO` | `dim_item.dit_ancho` | directo |
-| `MARCA` | `dim_item.dit_nombrefabricante` | directo |
-| `BARRAS` | `dim_item.dit_codigobarras` | directo |
-| `DISEÑO` | `dim_item.dit_disenio` | directo |
-| `ACTIVO` | `dim_item.dit_activo` | directo |
-| `ARTICULO_COMPRA` | `dim_item.dit_compra` | directo |
+---
 
-### 9.3 Campos de demanda
+## 4. Flujo de ejecución
 
-Notación: `V365 = a."365D"`, `V90 = a."90D"`, `D365 = c.ddmrp_stock_inv_1anio`, `D90 = c."ddmrp_stock_inv_90D"`.
+```
+Datos de origen                Tablas resumen (en orden)            Cálculo                    Resultado
+SAP HANA (OITM/OITW/OITG) ──┐  1 ddmrp_bodega        stock actual    master_llantas.py ──────→ core.ddmrp_llantas
+hec_ventas                  │  2 ddmrp_inventario    días con stock  llantas_mes.py ─────────→ core.ddmrp_llantas_mes
+hec_inventario              ├→ 3 ddmrp_ventas_picos  ADU, CV, VF  →  ddmrp_consolidado.py ───→ core.ddmrp_llantas_consolidado
+hec_transitos / reservas    │  4 ddmrp_proveedores_dlt DLT max/min   + vw_ddmrp_ventas         export_excel_*.py → Excel
+dim_item · parámetros ──────┘  5 ddmrp_proveedor_item proveedor 1/2  + vw_ddmrp_trans_ped
+                               6 ddmrp_medidas_top   TOP
+                               7 ddmrp_abc           pareto
+```
 
-| Campo | Fórmula | Explicación |
-|---|---|---|
-| `VTAS_1_AÑO` | `ROUND(V365, 2)` | Unidades vendidas netas últimos 365 días, canal mayoreo/B2B (§8.1). `NULL` si el ítem no tuvo venta. |
-| `VENTAS MES PICO` | `ROUND(max_cantidad_anio, 2)` | La línea de venta individual más grande del año (§8.1). |
-| `DIF PICO VTAS ULT AÑO VS # VTAS ULT AÑO` | `supera_umbral` | `SI` si esa línea supera el 40 % de la venta anual. |
-| `DIAS INV 1 AÑO` | `ROUND(D365, 2)` | Días con stock en el último año (§5). |
-| `DEMANDA MES 1 AÑO` | `ROUND( COALESCE( V365 / NULLIF(D365,0) × 30 , 0), 2)` | Venta por **día con stock** × 30 = demanda mensual corregida por quiebres. 0 si no hay días con stock o no hay venta. |
-| `VENTA 90D` | `ROUND(V90, 2)` | Venta últimos 90 días (§8.1). |
-| `DIAS INV 90D` | `ROUND(D90, 2)` | Días con stock últimos 90 días (§5). |
-| `DEMANDA MES 90D` | `ROUND( COALESCE( V90 / NULLIF(D90,0) × 30 , 0), 2)` | Igual que la anual, con la ventana de 90 días. |
-| `% VAR DEMANDA` | `ROUND( COALESCE( ( (V90/D90) / (V365/D365) − 1 ) × 100 , 0), 2)` | Variación % de la demanda diaria reciente (90d) contra la anual. Positivo = la demanda está subiendo. 0 si no se puede dividir. |
-| `VENTAS MES ACTUAL` | `ROUND(a."MES", 2)` | Venta desde el día 1 del mes en curso. |
+- Si falla cualquiera de las tablas resumen, se registra el error, **no** se actualiza la tabla final y el
+  proceso termina con código 1.
+- Cada carga es **una sola transacción**: si algo falla, la tabla conserva la corrida anterior.
+- Patrón de carga: `CREATE TABLE IF NOT EXISTS` → `ALTER TABLE … ADD COLUMN IF NOT EXISTS` (las columnas nuevas
+  quedan al final; para que salgan en su lugar hay que hacer `DROP TABLE` antes) → `TRUNCATE` → `INSERT`.
+- `ddmrp_proveedores.py` (DLT anterior, por PI) está comentado y ya no corre.
 
-### 9.4 Campos de inventario y suministro
+---
 
-| Campo | Fórmula | Explicación |
-|---|---|---|
-| `EN STOCK` | `ROUND(d.sum, 2)` | Stock físico actual en bodegas de venta (SAP HANA, §4). |
-| `TRANSITO 30D` | `ROUND(e."30D", 2)` | Tránsitos abiertos que llegan en 0–30 días (§8.2). |
-| `TRANSITO 60D` | `ROUND(e."60D", 2)` | Tránsitos abiertos que llegan en 31–60 días (§8.2). |
-| `PEDIDOS` | `ROUND(e.pedido, 2)` | Pendiente de facturas reserva abiertas tipo PEDIDO (§8.2). |
-| `BACKORDERS` | `ROUND(e.backorder, 2)` | Pendiente de facturas reserva abiertas tipo BACKORDER (§8.2). |
-| `STOCK TOTAL` | `ROUND( EN STOCK + TRANSITO 30D + TRANSITO 60D + PEDIDOS + BACKORDERS , 2)` (nulos = 0) | Inventario físico + todo el suministro abierto. |
-| `MES INV TOTAL` | `ROUND( COALESCE( STOCK TOTAL / NULLIF(DEMANDA MES 90D, 0) , 0), 2)` | Meses de cobertura del stock total con la demanda de 90 días. 0 si la demanda es 0. |
+## 5. Importador y comercializador (homologaciones)
 
-### 9.5 Campos DDMRP de entrada
+Cada marca se planifica en una sola empresa; si otra la compra, vende o guarda, sus datos pasan a la que planifica.
 
-| Campo | Cálculo |
-|---|---|
-| `DLT` | **Paso 1** – por proveedor: `AVG(dlt)` de todas sus filas en `ddmrp_proveedores` (empresa + cod_proveedor), 2 dec.<br>**Paso 2** – por ítem: `AVG` de los DLT de los proveedores del ítem según `vw_ddmrp_item_proveedor` (si tiene varios, se promedian), 2 dec.<br>Ítem sin proveedor / sin historial → **0**. |
-| `VF` | `VF` del ítem en `ddmrp_ventas_picos` (§6.3). Ítem sin ventas desde 2025-05 → **0**. |
-| `ADU` | `ADU` del ítem en `ddmrp_ventas_picos` (§6.3), UPDATE por `EMPRESA` + `CODIGO_ITEM`. Sin venta → **0** (default). |
-| `LTF` | Se inserta en 0 y luego `SQL_LTF`:<br>`DLT = 0` → **0**<br>`DLT ≤ 60` → param 6 = **0.6**<br>`60 < DLT ≤ 100` → param 5 = **0.4**<br>`DLT > 100` → param 4 = **0.2**<br>(lead time corto → factor alto; lead time largo → factor bajo). |
-
-### 9.6 Zonas del buffer
-
-| Campo | Fórmula | Redondeo | Significado |
+| De | A | Qué | Cómo |
 |---|---|---|---|
-| `ZONA ROJA BASE` | `ADU × DLT × LTF` | 2 dec. | Base de la zona de seguridad. |
-| `ZONA ROJA SEGURIDAD` | `ZONA ROJA BASE × VF` | 2 dec. | Refuerzo por variabilidad de la demanda. |
-| `TOR` (Top of Red) | `ZONA ROJA BASE + ZONA ROJA SEGURIDAD` | — | Zona roja total. |
-| `ZONA AMARILLA` | `ADU × DLT` | 2 dec. | Demanda esperada durante el lead time. |
-| `TOY` (Top of Yellow) | `TOR + ZONA AMARILLA` | — | Nivel de disparo de la orden. |
-| `ZONA VERDE` | `GREATEST( ROUND(ADU × Ciclo de Pedido (param 3 = 30), 2) ; ZONA ROJA BASE )` | 2 dec. | Tamaño/frecuencia de la orden. **Sin MOQ** por ahora. |
-| `TOG` (Top of Green) | `TOY + ZONA VERDE` | — | Tope máximo del buffer. |
+| STOX | AUTOLLANTA | ROADWING, propiedad ROADWING PESADO | por nombre (ej. ST_2001114 → AU_2003841) |
+| MAXXIMUNDO | STOX | CST, grupo LLANTAS MOTO | por nombre (ej. MA_2000236 → ST_2000028) |
+| MAXXIMUNDO | IKONIX | UYUSTOOLS · SATA · DONG CHEN (al revés: planifica IKONIX) | por marca → proveedor de MAXXIMUNDO |
 
-### 9.7 Posición de flujo y pedido
-
-| Campo | Fórmula | Explicación |
+| Dato | Dónde | Cómo se pasa |
 |---|---|---|
-| `NFP` | `STOCK TOTAL − 0` | Net Flow Position = disponible + suministro abierto − demanda calificada. La **demanda calificada está en 0** (pendiente traer pedidos abiertos de clientes desde SAP). Hoy `NFP = STOCK TOTAL`. |
-| `PEDIDO SUGERIDO` | si `NFP ≤ TOY` → `GREATEST(TOG − NFP, 0)`; si no → `0` | Solo se pide cuando la posición cae a la zona amarilla o roja; se repone hasta el TOG. |
+| Ventas (UN AÑO, 90D, MES, pico, última venta) | `vw_ddmrp_ventas` | se mueven; el origen queda sin ellas |
+| ADU, ADU sin picos, CV, VF y sus días | `ddmrp_ventas_picos.py` | las ventas diarias se suman al destino |
+| Stock (EN STOCK) | `ddmrp_bodega.py` | se suma al destino; **el origen lo conserva** |
+| DIAS INV 1 AÑO / 90D | master `[H1]` | el destino toma los del origen |
+| P. LISTA | master `[H2]` | el destino toma el del origen (solo ROADWING) |
+| DLT y proveedor (IKONIX) | master `[8]` · `ddmrp_proveedor_item.py` | por marca (`MARCA_PROVEEDOR_IKONIX`) |
 
-**Casos particulares:**
+AUTOMAX se planifica por separado con sus propias ventas y stock.
 
-| Situación | Resultado |
+---
+
+## 6. Tablas resumen
+
+Carpeta `tablas_resumen\`. Cada script prepara una tabla que después usan los cálculos.
+
+| Script → tabla | Origen | Qué calcula | Lo usa |
+|---|---|---|---|
+| `ddmrp_bodega.py` → `core.ddmrp_bodegas` | SAP HANA | Stock actual en las bodegas de venta (+ homologación del stock) | EN STOCK |
+| `ddmrp_inventario.py` → `core.ddmrp_inventario` | `hec_inventario` | Días del año y de 90 días en que alguna bodega de venta tuvo 4 o más unidades (`inv_stock > 3`, por bodega, no sobre la suma) | DIAS INV 1 AÑO / 90D, divisor del ADU |
+| `ddmrp_ventas_picos.py` → `core.ddmrp_ventas_picos` | `hec_ventas` | Venta por día, picos (Z modificado), ADU con y sin picos, CV y VF. Últimos 365 días, sin PPTO, solo EQUIPO DE MAYOREO y B2B, sin 4 clientes relacionados | ADU, ADU SIN PICOS, VF |
+| `ddmrp_proveedores_dlt.py` → `core.ddmrp_proveedores_dlt` | tabla cargada a mano (29 proveedores) | DLT MAX = confirmación + producción + backorder + booking + tránsito + aduana; DLT MIN = sin backorder | DLT |
+| `ddmrp_proveedor_item.py` → `core.ddmrp_proveedor_item` | `dim_item`, importaciones | Proveedor 1 y 2 con nombre (IKONIX por marca) | COD. PROV1/2, PROV1/2 |
+| `ddmrp_medidas_top.py` → `core.ddmrp_medidas_top` | `core.ddmrp_medidastop` | TOP = 'SI' si la descripción tiene una medida TOP | TOP |
+| `ddmrp_abc.py` → `core.ddmrp_abc` | `hec_ventas` | Score 20 % unidades + 30 % venta + 50 % utilidad: A hasta 80 %, B hasta 95 %, C el resto; nuevo → C; venta ≤ 0 → D | CLASIF. PARETO |
+
+**Picos y ADU** (`ddmrp_ventas_picos`): `Z = 0.6745 × (venta del día − mediana) ÷ MAD`; pico si |Z| > 4 (parámetro 13).
+`ADU_CON_PICOS = ventas del año ÷ días con inventario` (el que usan las fórmulas);
+`ADU_SIN_PICOS` descuenta los picos altos. CV: el año en 12 tramos de ~30 días (sin días pico alto),
+`CV = desviación ÷ promedio`; con menos de 3 tramos o sin venta → no medible (CV 0).
+
+---
+
+## 7. Vistas PostgreSQL
+
+| Vista | Qué da | Columnas en la tabla final |
+|---|---|---|
+| `core.vw_ddmrp_ventas` | Ventas por empresa + ítem (365 días, 90 días, mes actual, mayor línea, última venta), con las homologaciones y lubricantes a volumen | UN (#) - AÑO, UN (#) - 90D, UNIDADES MES ACTUAL, PICO ULT. AÑO X FACTURA, DIF. MAX AÑO vs TOT. AÑO (> 40 %), ULTIMA VENTA |
+| `core.vw_ddmrp_trans_ped` | Tránsitos (`hec_transitos`), pedidos y backorders (`hec_facturas_reserva`) abiertos, por tramos de días | TRANSITOS, Pedidos, Backorders y sus tramos |
+| `core.vw_ddmrp_item_proveedor` | Proveedor principal del ítem | para buscar el DLT |
+
+Las consultas completas de las vistas están en el HTML.
+
+---
+
+## 8. Cálculo en el master (`master_llantas.py`)
+
+`master_llantas.py` → `core.ddmrp_llantas`. Una fila por ítem de `dim_item` que sea llanta (LLANTAS o
+LLANTAS MOTO), activa y de compra. Primero se carga la tabla base (`SQL_DDMRP`) y luego los pasos de la lista
+`PASOS`, en orden. En el código cada fórmula tiene su número: buscar `[n]`.
+
+**A · Días con inventario**
+
+| Paso | Columna | Cálculo |
+|---|---|---|
+| H1 | DIAS INV 1 AÑO · 90D | El importador toma los días del comercializador (AUTOLLANTA ← STOX ROADWING PESADO; STOX ← MAXXIMUNDO CST moto) |
+| H3 | DIAS INV 1 AÑO · 90D | Si EN STOCK > 4, cada una que esté en 0 pasa a 1 |
+
+**B · Stock y demanda**
+
+| Paso | Columna | Cálculo |
+|---|---|---|
+| 1 | TOP | de `ddmrp_medidas_top` |
+| 2 | STOCK TOTAL | EN STOCK + TRANSITOS TOTAL + PEDIDOS + BACKORDERS |
+| 3 | DEMANDA MES - AÑO | UN (#) - AÑO ÷ DIAS INV 1 AÑO × 30 |
+| 4 | DEMANDA MES 90D | UN (#) - 90D ÷ DIAS INV 90D × 30 |
+| 5 | % VARIACIÓN DEMANDA | (demanda diaria 90D ÷ demanda diaria del año − 1) × 100 |
+| 6 | MES INV TOTAL SEGUN DEMANDA 90D | STOCK TOTAL ÷ DEMANDA MES 90D · 9999 si no vendió y tiene stock |
+| 12 | ADU · ADU SIN PICOS | de `ddmrp_ventas_picos` (los cálculos usan el ADU con picos) |
+| 13 | STOCK PROYECTADO DLT | STOCK TOTAL − DLT × ADU |
+
+**C · Lead time y variabilidad**
+
+| Paso | Columna | Cálculo |
+|---|---|---|
+| 7 | DLT | del proveedor principal: DLT MAX si tiene BACKORDERS, si no DLT MIN |
+| 8 | DLT (IKONIX) | del proveedor que le toca por marca |
+| 9 | DLT (si quedó en 0) | promedio del DLT de la misma marca |
+| 10 · 11 | VF | según el CV: ≤ 0.5 → 0.2 · ≤ 1 → 0.4 · > 1 → 0.6 · si quedó en 0 → 0.20 |
+| 14 · 15 | LTF | según el DLT: ≤ 60 → 0.6 · ≤ 100 → 0.4 · > 100 → 0.2 · si quedó en 0 → 0.20 |
+
+**D · Buffer**
+
+| Paso | Columna | Cálculo |
+|---|---|---|
+| 16 | ZONA ROJA BASE | ADU × DLT × LTF |
+| 17 | ZONA ROJA SEGURIDAD | ZONA ROJA BASE × VF |
+| 18 | ZONA ROJA (TOR) | BASE + SEGURIDAD |
+| 19 | ZONA AMARILLA | ADU × DLT |
+| 20 | LIMITE ZONA AMARILLA (TOY) | TOR + ZONA AMARILLA |
+| 21 | ZONA VERDE | MAX(ADU × 30 ; ZONA ROJA BASE) |
+| 22 | TAMAÑO BUFFER (TOG) | TOY + ZONA VERDE |
+
+**E · Pedido**
+
+| Paso | Columna | Cálculo |
+|---|---|---|
+| 23 | FLUJO NETO (NFP) | STOCK TOTAL − ADU × DLT |
+| 24 | TAMAÑO PEDIDO | TOG − NFP si NFP ≤ TOG; si no 0 |
+| 25 | NUEVO TAMAÑO PEDIDO | 0 si MES INV TOTAL > 4; si no TAMAÑO PEDIDO al par de arriba |
+| 26 | TAMAÑO 3 MESES INVENTARIO | ADU × 90 |
+| JP | NFP JP | par(STOCK TOTAL − ADU × DLT ÷ 3) |
+| JP | PROD SIN VENTAS SIN STOCK | 'REVISAR' si TAMAÑO PEDIDO = 0 y STOCK TOTAL = 0, si no '0' |
+| JP | PROD CON STOCK SIN VENTAS | 'LIQUIDAR' si TAMAÑO PEDIDO = 0 y STOCK PROYECTADO DLT ≠ 0, si no '0' |
+| JP | VALIDADOR | TAMAÑO PEDIDO |
+| JP | PEDIDO SUGERIDO JP | par(TOG) si VALIDADOR > 0 y NFP JP ≤ 0 · par(TOG − NFP JP) si TOG > 0 y NFP JP < TOG · '0' en otro caso. **Usa el TOG desde el 09/11/2026** (antes TAMAÑO PEDIDO, y el último caso daba 'REVISAR') |
+| OBS | OBSERVACIONES | 'INACTIVAR' · 'LIQUIDAR' · '-' (último paso) |
+
+**F · Costos e información:** ULTIMO FOB, COSTO PROM, ULT. COSTO, P. LISTA (`dim_item`; AUTOLLANTA toma el P. LISTA
+de STOX en ROADWING PESADO), P. LISTA VS ULT.COSTO, proveedor 1 y 2, ULTIMA VENTA, ULTIMA COMPRA.
+
+Excel de JP: `=SI(Y(BO2>0;BL2<=0);REDONDEA.PAR(BG2);SI(Y(BG2>0;BL2<BG2);REDONDEA.PAR(BG2-BL2);SI(Y(BG2>0;BL2>BG2);0;0)))`
+(BG = TOG, BL = NFP JP, BO = VALIDADOR). `par()` = `REDONDEA.PAR`.
+
+Para calcular con el ADU sin picos: en `SQL_ADU` (paso 12) cambiar `"ADU_CON_PICOS" AS adu` por `"ADU_SIN_PICOS" AS adu`.
+
+---
+
+## 9. Reportes en Excel
+
+Los tres exportadores buscan las columnas por **nombre** (no por letra) y crean la carpeta del día.
+
+| Script | Formato | Qué exporta |
+|---|---|---|
+| `export_excel_llantas.py` | *Manual Formato de Reporte de DDMRP* | `core.ddmrp_llantas`, MES INV 9999 → INFINITO, ordenado por BARRAS |
+| `export_excel_llantas_mes.py` | *DDMRP_GRUPOVI_LLANTAS_V16* | `core.ddmrp_llantas_mes` |
+| `export_excel_consolidado.py` | *REORDENADO_UNIFICADO.xlsx* | `core.ddmrp_llantas_consolidado` |
+
+Colores de fila (el último gana): **naranja** DIAS INV 90D < 68 · **rojo** además DIAS INV 1 AÑO < 275 ·
+**verde** DIF. MAX AÑO vs TOT. AÑO = SI. Encima van los colores de columna. Cada Excel lleva la hoja
+EXPLICACIÓN COLORES, columnas ocultas y grupos (+ / −).
+
+---
+
+## 10. Consolidado v1 (programa con ventana)
+
+Carpeta `consolidado_v1\`. Hace **todos los cálculos** del Excel *Reporte de Pedidos Consolidado (final,
+revisado 12-11-2026)* (95 columnas) en una sola consulta y los muestra en una ventana. Es de **solo lectura**:
+no crea ni cambia tablas en el DWH. Lee las tablas resumen tal como están, así que conviene correr antes el
+.bat (opción 4). Necesita `PySide6-Essentials` (está en `requirements.txt`).
+
+```
+C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe consolidado_v1\ddmrp_consolidado_v1.py
+```
+
+| Archivo | Qué tiene |
 |---|---|
-| ADU = 0 (sin venta) | Todas las zonas = 0 → TOG = 0 → pedido = 0. |
-| DLT = 0 (sin historial de importación) | LTF = 0 → ROJA = 0, AMARILLA = 0, TOY = 0; VERDE = ADU × 30; TOG = ADU × 30. Solo se pide si `NFP ≤ 0`, y se pide `ADU × 30 − NFP`. |
-| NFP > TOY | Pedido = 0 aunque esté por debajo del TOG. |
+| `ddmrp_consolidado_v1.py` | Se ejecuta este. Filtros del DDMRP, consulta de origen (`SQL_ITEMS`), columnas en el orden del Excel, grupos, ocultas, colores de fila, indicadores, filtros de la ventana y las 24 fórmulas del *Excel de validación* (`FORMULAS_EXCEL_VALIDACION`) |
+| `formulas_ddmrp_v1.sql` | **Todas las fórmulas** (62, en 11 pasos), una por columna. **Aquí se cambia un cálculo.** |
+| `ddmrp_v1_motor.py` | Arma la consulta de solo lectura (`WITH paso_0 AS MATERIALIZED (…) …`); cambia `PAR(x)` por REDONDEA.PAR. No se toca. |
+| `ddmrp_v1_ventana.py` | La ventana (Qt / PySide6). |
+| `ddmrp_v1_legible.py` | Pestaña Cálculos: muestra cada fórmula del .sql como fórmula de Excel. Solo muestra. |
+| `ddmrp_v1_excel.py` | Botones *Exportar a Excel* y *Excel de validación*. |
+
+**Cómo cambiar una fórmula:** abrir `formulas_ddmrp_v1.sql` (cada paso empieza con `-- @PASO n · TÍTULO`; cada
+fórmula termina en `AS "COLUMNA",`; las líneas `--` son la explicación), cambiar solo esa fórmula (puede usar
+columnas de pasos **anteriores**; el diccionario Excel → SQL está al inicio del archivo) y en la ventana dar
+**⟳ Actualizar datos**. Si hay un error, lo dice con el número de línea y deja los datos de antes. Se calcula
+con **todos los decimales**; el selector *Decimales* solo cambia cómo se ve.
+
+**La ventana:**
+- Barra de arriba: *DATOS AL* (fecha y hora de la lectura), *Actualizar datos* y filtros fijos.
+- *Datos del ítem*: indicadores (ítems mostrados, con pedido a piso, PEDIDO AJUSTADO DDMRP, PEDIDO AJUSTADO
+  DDMRP JP, PEDIDO SUGERIDO AJUSTADO A PISO), buscador, 8 filtros (activos en amarillo), columnas ancladas hasta
+  `ANT.`, grupos `[+]`/`[-]`, colores de fila, ordenar con clic en el encabezado.
+- *Filtros*: embudo de los filtros fijos, filtros puestos (✕ para quitar) y la consulta SQL para pgAdmin.
+- *Cálculos*: cada columna con explicación, fórmula estilo Excel, **ejemplo con los valores de un ítem**, qué
+  usa y dónde se usa.
+
+**Exportar a Excel:** guarda lo que se ve (filtros y orden) con el formato del Excel final (SUBTOTAL en la fila 1,
+colores, grupos, anclado hasta `ANT.`, hoja EXPLICACIÓN COLORES con la fecha de los datos).
+
+**Excel de validación:** las 24 columnas que en el Excel original son fórmulas van como fórmulas de Excel, más las
+hojas VALIDACIÓN (OK / DIF) y VALORES PROGRAMA. Prueba del 13/11/2026 (5,723 ítems): 21 columnas iguales; las 73
+diferencias son de `REDONDEA.PAR` en Excel, que da 2 unidades más por su redondeo interno.
+
+**Pendientes del v1:** quitar el `ROUND(…, 2)` de costos y DLT promedio en `SQL_ITEMS`; CV/ADU con 2 decimales en
+`ddmrp_ventas_picos` (28 ítems con CV en 0.50 / 1.00); observaciones de las fórmulas del Excel (MESES X PEDIR
+PARA PISO con stock de sobra, zonas con ADU BASE y ADU 90 DÍAS, casos "E" / #¡VALOR!); guardar tabla en el DWH
+cuando se dé por lista.
 
 ---
 
-## 10. Ejemplo completo paso a paso (MA_2000050)
+## 11. Parámetros
 
-Ítem `MA_2000050` – APLUS 185/60 R-14 A609 82H – MAXXIMUNDO. Valores reales de la corrida del 27/09/2026.
+En `core.ddmrp_parametros` (se cambian ahí, sin tocar código).
 
-### 10.1 ADU y VF (`ddmrp_ventas_picos`)
+| id | Parámetro | Valor | Para qué |
+|---|---|---|---|
+| 1 | Ventas 1 año | 365 | ventana anual |
+| 2 | Venta 90 días | 90 | ventana corta |
+| 3 | Ciclo de pedido | 30 | zona verde |
+| 4 · 5 · 6 | LTF bajo · medio · alto | 0.2 · 0.4 · 0.6 | DLT > 100 · 61–100 · ≤ 60 |
+| 7 · 8 · 9 | VF bajo · medio · alto | 0.2 · 0.4 · 0.6 | CV ≤ 0.5 · ≤ 1 · > 1 |
+| 13 | Umbral de pico | 4 | \|Z\| > 4 = pico |
+| 14 | Constante Z | 0.6745 | Z modificado |
 
-Venta mensual desde 2025-05 (ningún mes marcado como pico; el Z más alto fue 2.46 en 2026-08, menor que 3.5):
+Valores escritos en el código: `inv_stock > 3` (ddmrp_inventario), `EN STOCK > 4` (master [H3]), 60 / 100 días
+(tramos del LTF), 4 meses y 90 días (NUEVO TAMAÑO PEDIDO, TAMAÑO 3 MESES), 40 % (vista de ventas),
+3 / 2 meses en piso (mensualizado).
 
-| Mes | 2025-09 | 10 | 11 | 12 | 2026-01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Cantidad | 95 | 54 | 86 | 255 | 191 | 419 | 554 | 205 | −14 | −9 | 331 | 688 |
+---
 
-(Mayo–agosto 2025 y septiembre 2026 están en la tabla pero fuera de la serie: los primeros por la ventana de 12 meses y septiembre 2026 por ser el mes en curso.)
+## 12. Observaciones y pendientes
 
-- Suma = 2.855 → promedio = 237,92 u/mes
-- **ADU** = 237,92 / 30 = **7,93** u/día
-- **CV** = desviación estándar muestral / promedio = **0,94** → tramo 0,5 < CV ≤ 1 → factor 0,4
-- **VF** = 0,94 × 0,4 = 0,376 → **0,38**
+1. **El FLUJO NETO resta la demanda del lead time** (negocio): ya está en la zona amarilla, se cuenta dos veces.
+2. **LIQUIDAR marca también ítems que sí venden** (negocio): conviene agregar ADU = 0 si debe ser "sin ventas".
+3. **Regla de disparo del pedido** (negocio): se pide con NFP ≤ TOG; en DDMRP es NFP ≤ TOY.
+4. **Picos por día** (negocio): en venta irregular se marcan como pico muchas ventas normales.
+5. **Ventas duplicadas por nombres repetidos** en `vw_ddmrp_ventas` (técnico).
+6. **Ítems que venden con DLT 0** (dato): su proveedor no tiene tiempos cargados.
+7. **Stock homologado contado dos veces** (técnico): el comercializador conserva el stock.
+8. **Regla CST distinta según el archivo** y **9 ítems CST moto sin ítem en STOX** (dato).
+9. **DONG CHEN no existe en dim_item** y el mapa de IKONIX la tiene como `DONGCHENG` (dato).
+10. **Solo 29 proveedores con DLT** (dato); **VF de ítems no medibles** termina en 0.20 (técnico).
+11. **Dos reglas de "4 unidades"** que no coinciden (`inv_stock > 3` por bodega vs `EN STOCK > 4` en la suma).
+12. **365 frente a 366 días** entre la vista de ventas y el ADU; **lubricantes** en volumen vs unidades.
+13. **ULTIMA COMPRA en 01/01/2017** en ~7,100 ítems; **bodegas de IKONIX** y **50 TRANSITO** de AUTOLLANTA no
+    entra en EN STOCK; **tránsitos viejos de IKONIX**; **AUTOLLANTA guarda stock de otras marcas**.
+14. Pendientes del consolidado v1: ver la [sección 10](#10-consolidado-v1-programa-con-ventana).
 
-### 10.2 DLT (`ddmrp_proveedores`)
+El detalle de cada punto, con ejemplos, está en el HTML.
 
-Proveedor único `P4444444444444`, 20 PIs. Ej. PI `LABZ-MX240614`: producción 30 días + tránsito 34 días + 9 fijos = **73**.
-Promedio del DLT de las 20 filas = **65,70** → tramo 60 < DLT ≤ 100 → **LTF = 0,4**.
+---
 
-### 10.3 Demanda (`vw_ddmrp_ventas` + `ddmrp_inventario`)
+## 13. Ejecutar y mantener
 
-| Campo | Cálculo | Valor |
+```
+DDMRP.bat                 (menú 1 · 2 · 3 · 4)
+DDMRP.bat 4               (todo, sin preguntar: para el Programador de tareas)
+C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe master_llantas.py
+C:\Users\plituma\Documents\Scripts\.venv\Scripts\python.exe consolidado_v1\ddmrp_consolidado_v1.py
+```
+
+### Las dos carpetas
+
+| | `Scripts\DDMRP` (trabajo) | `GitHub\DDMRP_consolidado` (repositorio) |
 |---|---|---|
-| DEMANDA MES 1 AÑO | 3.165 / 278 × 30 | 341,55 |
-| DEMANDA MES 90D | 1.423 / 63 × 30 | 677,62 |
-| % VAR DEMANDA | (22,587 / 11,385 − 1) × 100 | 98,40 % |
+| Lógica | La misma: scripts, fórmulas, tablas resumen, .bat y consolidado v1 | igual |
+| Rutas | Exportadores y ventana v1 guardan en `C:\Users\plituma\Documents\Scripts\DDMRP\REPORTES DDMRP`; el .bat usa esa carpeta fija | Todo es relativo a la carpeta del proyecto (el .bat usa `%~dp0`) |
+| Conexión | Tablas resumen y cálculos: `conection\config.py`. Exportadores: `C:\Users\plituma\Documents\Scripts\config.py` | Todo usa `conection\config.py` (no se sube: se crea copiando `config_example.py`) |
+| Librerías | `requirements.txt` (incluye SQLAlchemy y PySide6-Essentials) | igual |
+| No se copian | `logs\`, `REPORTES DDMRP\` (se crean solas, están en `.gitignore`), `__pycache__`, `consolidado_v1\ddmrp_v1_ventana_tk.py` (respaldo, solo en Scripts) | |
 
-### 10.4 Suministro
+### ¿Dónde cambio…?
 
-| EN STOCK | TRANSITO 30D | TRANSITO 60D | PEDIDOS | BACKORDERS | STOCK TOTAL | MES INV TOTAL |
-|---:|---:|---:|---:|---:|---:|---:|
-| 2 | 0 | 310 | 400 | 0 | **712** | 712 / 677,62 = **1,05** |
+| Quiero… | Dónde |
+|---|---|
+| Agregar o mover una columna | `SQL_DDMRP` o `COLUMNAS_CALCULADAS` en `master_llantas.py` (o `llantas_mes.py`), y luego `DROP TABLE core.ddmrp_llantas;` (o `core.ddmrp_llantas_mes`) |
+| Agregar una fórmula | Un bloque `SQL_…` y una línea en `PASOS` (si no está en `PASOS`, no se calcula) |
+| Cambiar una fórmula del consolidado v1 | `consolidado_v1\formulas_ddmrp_v1.sql` y botón *Actualizar datos* |
+| Cambiar columnas, grupos, colores o filtros de la ventana v1 | sección 3 de `consolidado_v1\ddmrp_consolidado_v1.py` |
+| Cambiar qué columnas toma el consolidado de cada modelo | lista `COLUMNAS` en `ddmrp_consolidado.py` |
+| Agregar una homologación | vista de ventas · `HOMOLOGACIONES` en ventas_picos · `ddmrp_bodega.py` · pasos `[H1]`/`[H2]` del master |
+| Cambiar días, factores o umbral | `core.ddmrp_parametros` |
+| Agregar un proveedor con DLT | cargar sus tiempos en `core.ddmrp_proveedores_dlt` |
+| Cambiar el formato de un Excel | bloques de configuración al inicio de `export_excel_llantas.py` / `_llantas_mes.py` / `_consolidado.py` |
+| Agregar un reporte al .bat | `call :run_step "NOMBRE" "archivo.py" \|\| goto :fin_error` en la opción que corresponda |
 
-### 10.5 Buffer y pedido
-
-| Campo | Cálculo | Valor |
-|---|---|---:|
-| ZONA ROJA BASE | 7,93 × 65,70 × 0,4 | 208,40 |
-| ZONA ROJA SEGURIDAD | 208,40 × 0,38 | 79,19 |
-| TOR | 208,40 + 79,19 | 287,59 |
-| ZONA AMARILLA | 7,93 × 65,70 | 521,00 |
-| TOY | 287,59 + 521,00 | 808,59 |
-| ZONA VERDE | máx(7,93 × 30 = 237,90 ; 208,40) | 237,90 |
-| TOG | 808,59 + 237,90 | 1.046,49 |
-| NFP | STOCK TOTAL − 0 | 712,00 |
-| PEDIDO SUGERIDO | 712 ≤ 808,59 → 1.046,49 − 712 | **334,49** |
-
----
-
-## 11. Observaciones y puntos a revisar
-
-Hallazgos del análisis del código. **No se modificó nada**; son preguntas para confirmar si el comportamiento es el esperado.
-
-### Lógica de negocio
-
-1. **Tramos de LTF invertidos entre scripts.** En `ddmrp_proveedores.py` (columna `ltf`), DLT ≤ 60 usa el factor **0.2** y DLT > 100 usa **0.6**. En `master.py` (columna `LTF`) es al revés: DLT ≤ 60 → **0.6**, DLT > 100 → **0.2**. El master es el que se usa en las zonas y coincide con el criterio estándar DDMRP (lead time largo → factor bajo). La columna `ltf` de proveedores además está en días (DLT × factor), no es el factor.
-2. **VF = CV × factor.** En DDMRP estándar el VF es el factor del tramo (0.2 / 0.4 / 0.6). Aquí se multiplica por el CV, así que un CV de 0.3 da VF 0.06 y un CV de 2 da VF 1.2; en cambio un SKU no medible recibe 0.40 sin multiplicar. Confirmar que es la regla deseada.
-3. **Ventas distintas para ADU y para las columnas de demanda.** `ADU` sale de `ddmrp_ventas_picos` (todas las ventas, sin filtro de canal ni de clientes), mientras que `VTAS_1_AÑO`, `VENTA 90D`, `DEMANDA MES …` salen de `vw_ddmrp_ventas` (solo mayoreo/B2B y sin 4 clientes). El buffer se calcula con una demanda distinta a la que se muestra.
-4. **Picos de lead time cuentan como 0 en el DLT.** En `ddmrp_proveedores` el pedido con pico no se excluye: queda con `leadtime_adu = 0` y su DLT baja a 9 + el otro tramo, y después entra al promedio del master. Esto **reduce** el DLT del proveedor. Igual pasa con las filas con `leadtime_promedio` NULL (PI sin match en `hec_pedidos`), que entran con producción = 0.
-5. **Filtro de fecha de proveedores.** `hfr_fechadocumento < CURRENT_DATE − 365` toma solo facturas **de hace más de un año**, no las del último año. Confirmar si es intencional (p. ej. para usar solo importaciones cerradas).
-6. **Ítems sin DLT.** En la corrida actual, de 12.419 ítems solo 1.277 tienen DLT > 0 (5.550 tienen ADU > 0). Para el resto, LTF = 0 y el buffer se reduce a la zona verde (ADU × 30); solo sugieren pedido cuando NFP ≤ 0.
-7. **Demanda calificada = 0 en el NFP** (pendiente, ya comentado en el código).
-8. **Sin MOQ en la zona verde** (pendiente, ya comentado en el código).
-9. **Tránsitos vencidos no se cuentan.** `vw_ddmrp_trans_ped` solo toma tránsitos con entrega entre hoy y hoy + 60. Un tránsito abierto con fecha ya pasada (atrasado) o a más de 60 días no suma al NFP.
-10. **`VENTAS MES PICO` no es un mes.** Es `MAX(hev_cantidad)` de líneas de documento individuales. Igual `supera_umbral` compara esa línea contra el 40 % del año.
-
-### Detalles técnicos
-
-11. **`desviacion_estandar` guarda el CV**, no la desviación estándar (el nombre confunde).
-12. **Picos de ventas calculados sobre todo el histórico** desde 2025-05-01 (fijo en el código) incluyendo el mes en curso incompleto, mientras que el ADU usa solo los últimos 12 meses completos. La mediana/MAD no incluye los meses sin venta (no tienen fila), pero la serie del ADU sí los cuenta como 0.
-13. **`FECHA_DESDE` fija (2025-05-01).** A medida que pase el tiempo el histórico para picos crecerá sin límite; podría pasarse a parámetro o a ventana móvil.
-14. **`ddmrp_inventario`**: la ventana cuenta hasta 366 / 91 fechas (inicio y fin inclusivos). El comentario del código (`2026-09-22 -> 2025-09-21`) no coincide con el cálculo real (daría 2025-09-22).
-15. **Bodegas duplicadas** en `ddmrp_bodega.py` (`EMPRESAS_CONFIG`) y `ddmrp_inventario.py` (`BODEGAS_POR_EMPRESA`): si cambia una bodega hay que actualizar ambos.
-16. **`ddmrp_bodegas.sum` es `bigint`**: si `OnHand` tuviera decimales, se redondean.
-17. **`ddmrp_inventario` usa `FECHA_CORTE`**, pero las vistas y `ddmrp_ventas_picos` siempre usan la fecha de hoy; si se corre con fecha de corte, las ventanas no quedan alineadas.
-18. **`master.py` lee los parámetros 3–6 sin filtrar `ddmrp_estado = 1`** (los otros scripts sí filtran).
-19. **Credenciales en texto plano** en `conection/config.py` (SQL Server con usuario `sa`, PostgreSQL y HANA). Conviene moverlas a variables de entorno o a un archivo fuera del control de versiones.
+**Errores comunes:** *column "…" specified more than once* (dos columnas con el mismo nombre en `SQL_DDMRP`);
+*function … does not exist* (una función de Excel o un error de tipeo; las columnas se suman con `+`);
+columna nueva vacía (su fórmula no está en `PASOS`).

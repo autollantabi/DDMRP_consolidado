@@ -40,3 +40,13 @@ def sqlserver_conn_str(cfg=SQLSERVER):
         f"DATABASE={cfg['database']};"
         f"UID={cfg['user']};PWD={cfg['password']};"
     )
+
+
+def get_engine_postgres_dwh(schema="core"):
+    """Motor SQLAlchemy del DWH, con los datos de POSTGRES (lo usan los export_excel_*.py)."""
+    from urllib.parse import quote_plus
+    from sqlalchemy import create_engine
+    c = POSTGRES
+    url = (f"postgresql+psycopg2://{quote_plus(str(c['user']))}:{quote_plus(str(c['password']))}"
+           f"@{c['host']}:{c['port']}/{c['dbname']}")
+    return create_engine(url, pool_pre_ping=True, connect_args={"options": f"-c search_path={schema}"})

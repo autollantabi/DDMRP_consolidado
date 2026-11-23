@@ -1,5 +1,5 @@
 #ExportarExcel
-# Exporta core.ddmrp a Excel con el formato del "Manual Formato de Reporte de DDMRP".
+# Exporta core.ddmrp_llantas a Excel con el formato del "Manual Formato de Reporte de DDMRP".
 # Las columnas se buscan por NOMBRE (no por letra), así el formato no se daña si cambia el orden.
 import sys
 from datetime import date
@@ -19,7 +19,7 @@ from config import get_engine_postgres_dwh
 # --- 1. CONSULTA SQL ---
 # 0.1 solo los activos para compra y venta (ACTIVO = 'SI' y ARTICULO_COMPRA = 'Y')
 query = """
-select * from core.ddmrp where "GRUPO" in ('LLANTAS', 'LLANTAS MOTO') AND "ACTIVO" = 'SI' AND "ARTICULO_COMPRA" = 'Y';
+select * from core.ddmrp_llantas;
 """
 
 # --- 2. NOMBRE DEL ARCHIVO ---
@@ -27,12 +27,12 @@ select * from core.ddmrp where "GRUPO" in ('LLANTAS', 'LLANTAS MOTO') AND "ACTIV
 MARCAS  = "NEUMATICOS"
 EMPRESA = "TODAS"
 HOY     = date.today().strftime("%d-%m-%Y")
-# Carpeta "REPORTES DDMRP" en la raíz del proyecto (se crea solo si no existe)
+# Carpeta "REPORTES DDMRP" en la raíz del proyecto (se crea sola si no existe)
 CARPETA_REPORTES = RAIZ_PROYECTO / "REPORTES DDMRP"
 CARPETA = CARPETA_REPORTES / HOY
 output_file = CARPETA / f"Reporte de Pedidos ({MARCAS}) ({EMPRESA}) ({HOY}).xlsx"
 
-# --- 3. COLUMNAS (nombres en core.ddmrp) ---
+# --- 3. COLUMNAS (nombres en core.ddmrp_llantas) ---
 COL_ACTIVO        = "ACTIVO"
 COL_ART_COMPRA    = "ARTICULO_COMPRA"
 COL_MES_INV_TOTAL = "MES INV TOTAL SEGUN DEMANDA 90D"
@@ -68,7 +68,7 @@ COLOR_COLUMNAS = {
     COL_MES_INV_TOTAL:      AZUL,
     "STOCK TOTAL":          AZUL,
     "NUEVO TAMAÑO PEDIDO":  AMARILLO,
-    "PEDIDO SUGERIDO JP":   TOMATE_PALIDO,     # no existe en core.ddmrp: se salta si no está
+    "PEDIDO SUGERIDO JP":   TOMATE_PALIDO,     # no existe en core.ddmrp_llantas: se salta si no está
 }
 
 # 7. columnas que se agrupan: cada línea agrupa desde su primera hasta su última columna
@@ -81,7 +81,7 @@ GRUPOS = [
     ("Backorders_15D", "Backorders>30D"),
     ("LTF", "VF"),
     ("ADU SIN PICOS", "TAMAÑO BUFFER (TOG)"),
-    ("NFP JP", "VALIDADOR"),                     # se salta si no están en core.ddmrp
+    ("NFP JP", "VALIDADOR"),                     # se salta si no están en core.ddmrp_llantas
 ]
 
 
